@@ -1,0 +1,41 @@
+#+TITLE: shelter
+
+Shelter is a small application to manage user accounts. It is intended
+to manage virtual user accounts on some server.
+
+Applications (in the local network) can use shelter to authenticate
+users.
+
+
+** Usage
+
+Shelter is only a set of functions on top of a sqlite database that
+contains user account data. It exposes its functionality via the [[https://github.com/clojure/tools.nrepl][nrepl]]
+server.
+
+Start shelter using the uberjar or leiningen and connect to the nrepl,
+for example using leiningen (again):
+
+#+begin_src bash
+ lein repl :connect localhost:7989
+#+end_src
+
+
+or Emacs' [[https://github.com/clojure-emacs/cider][cider]] or some other nrepl client. Look at the source files
+for what functions are provided.
+
+Arguments passed to shelter are interpreted as paths to clojure source
+files. The files are loaded on startup via ~load-file~ if they exist
+and are meant to contain custom function useful in your environment.
+
+For example, to change the location of the user database file, put the
+following in a file and pass it to shelter:
+
+#+begin_src clojure
+  (in-ns 'shelter.core)
+  (config/set {:database "/var/lib/shelter/users.db"})
+#+end_src
+
+Shelter provides a [[https://github.com/mmcgrana/ring][ring]] http endpoint which can be easily configured
+with [[https://github.com/weavejester/compojure][compojure]] route defintions. See the ~rest.clj~ file for more and
+~core.clj~ for an example.

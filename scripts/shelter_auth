@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# A simple script that queries the shelter verify endpoint to
+# authenticate an account. The exit code tells about success or
+# failure.
+#
+# This works only, if the default `add-rest-verify-route' is enabled.
+
+if [ -z "$CURL_BIN" ]; then
+    CURL_BIN=curl
+fi
+
+$CURL_BIN -I -s "http://$1/verify?name=$2&password=$3&appid=$4"|head -n1|grep "200 OK"

@@ -21,7 +21,6 @@
 
 (defonce ^:private nrepl-server (atom nil))
 
-
 (defn some-valid?
   "Return true if there is at least one successful secret validation
   in VALIDATE-RESULT. VALIDATE-RESULT is a sequence of
@@ -32,9 +31,17 @@
 
 (defn verify
   "Return true if name and password can be verified against the user
-  database."
+  database.
+
+  If APP is given and the account has a separate password for APP it
+  is checked against this password. Otherwise the default password of
+  the account is used."
   [name password & [app]]
-  (some-valid? (account/validate name password app)))
+  (some-valid?
+   (account/validate name
+                     password
+                     (and (not-empty app)
+                          (account/secret-app-exists? name app) app))))
 
 (defn add-rest-verify-route
   "Add a GET route to the rest handler that verifies account
@@ -42,15 +49,26 @@
   encoded in the http status code and additionally in the body using a
   map to be encoded as json."
   []
-  (rest/prepend-route :verify
-                      (-> (GET "/verify" [name password app]
-                               (or (if (not (and name password))
-                                     {:status 400 :headers {} :body {:success false :message "No credentials given."}})
-                                   (if (verify name password app)
-                                     {:status  200 :headers {} :body {:success true}}
-                                     {:status  401 :headers {} :body {:success false}})))
-                          wrap-params
-                          wrap-json-response)))
+  (rest/prepend-route
+   :verify
+   (-> (GET "/verify" [name password app]
+            (or (if (not (and name password))
+                  {:status 400 :headers {} :body {:success false :message "No credentials given."}})
+                (if (verify name password app)
+                  {:status  200 :headers {} :body {:success true}}
+                  {:status  401 :headers {} :body {:success false}})))
+       wrap-params
+       wrap-json-response)))
+
+(defn set-password
+  "Sets a NEWPW for LOGIN if verification is successful using OLDPW."
+  [login oldpw newpw & [appid]]
+  (if (verify login oldpw appid)
+    (account/update-password login newpw appid)
+    {:error "Authentication failed."}))
+
+
+
 
 (defn -main [& args]
   (println "Shelter is starting up…")

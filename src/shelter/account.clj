@@ -192,10 +192,11 @@
            (apply
             (if update? sql/update! sql/insert!)
             (filterv #(not= nil %)
-                     [conn :shelter_secret data (if update?
-                                                  (if appid
-                                                    ["type = ':password' and login = ? and appid = ?" resolved appid]
-                                                    ["type = ':password' and login = ? and appid is null" resolved]))])))))))
+                     [conn :shelter_secret
+                      data (if update?
+                             (if appid
+                               ["type = ':password' and login = ? and appid = ?" resolved appid]
+                               ["type = ':password' and login = ? and appid is null" resolved]))])))))))
 
 (defn reset-password
   "Reset the password of LOGIN to some random value."
@@ -223,11 +224,12 @@
    (let [resolved (resolve-alias conn login)]
      (or (if (not resolved) {:error "The account does not exist."})
          (if (and appid (not (app-exists? conn appid))) {:error "The application does not exist."})
-         (let [sec-app (if appid (sql/query conn ["select hash,type,data from shelter_secret where login = ? and appid = ?"
-                                                  resolved appid]))]
-           (if sec-app
-             sec-app
-             (sql/query conn ["select type, hash, data from shelter_secret where appid is null and login = ?" resolved])))))))
+         (let [query "select type, hash, data from shelter_secret where "
+               sec-app (if appid
+                         (sql/query conn [(str query "login = ? and appid = ?")
+                                          resolved appid]))]
+           (or sec-app
+               (sql/query conn [(str query " appid is null and login = ?") resolved])))))))
 
 
 (defn get-properties

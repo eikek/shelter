@@ -43,7 +43,7 @@
                      (and (not-empty app)
                           (account/secret-app-exists? name app) app))))
 
-(defn add-rest-verify-route
+(defn rest-add-verify-route
   "Add a GET route to the rest handler that verifies account
   credentials given in the url query string. Success or failure is
   encoded in the http status code and additionally in the body using a
@@ -52,11 +52,11 @@
   (rest/prepend-route
    :verify
    (-> (GET "/verify" [name password app]
-            (or (if (not (and name password))
-                  {:status 400 :headers {} :body {:success false :message "No credentials given."}})
-                (if (verify name password app)
-                  {:status  200 :headers {} :body {:success true}}
-                  {:status  401 :headers {} :body {:success false}})))
+         (or (if (not (and name password))
+               {:status 400 :headers {} :body {:success false :message "No credentials given."}})
+             (if (verify name password app)
+               {:status  200 :headers {} :body {:success true}}
+               {:status  401 :headers {} :body {:success false}})))
        wrap-params
        wrap-json-response)))
 
@@ -67,6 +67,21 @@
     (account/update-password login newpw appid)
     {:error "Authentication failed."}))
 
+
+(defn rest-add-set-password-route
+  "Add a POST route to the rest handler to set a new password given
+  the current credentials."
+  []
+  (rest/prepend-route
+   :set-password
+   (-> (POST "/setpw" [name password newpassword app]
+         (or (if (not (and name password newpassword))
+               {:status 400 :headers {} :body {:success false :message "No credentials given."}})
+             (if (:error (set-password name password newpassword app))
+               {:status 401 :headers {} :body {:success false :message "Authentication failed."}}
+               {:status 200 :headers {} :body {:success true}})))
+       wrap-params
+       wrap-json-response)))
 
 
 
@@ -80,5 +95,5 @@
   (reset! nrepl-server
           (do
             (println (format "Starting nrepl server on port %d" (config/get :nrepl-port)))
-            (nrepl/start-server :port (:nrepl-port @config/config))))
-  (println "Welcom to shelter."))
+            (nrepl/start-server :port (config/get :nrepl-port))))
+  (println "Welcome to shelter."))

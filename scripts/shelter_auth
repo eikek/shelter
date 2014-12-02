@@ -10,4 +10,4 @@ if [ -z "$CURL_BIN" ]; then
     CURL_BIN=curl
 fi
 
-$CURL_BIN -I -s "http://$1/verify?name=$2&password=$3&appid=$4"|head -n1|grep "200 OK"
+$CURL_BIN -I -s "http://$1/verify?name=$2&password=$3&app=$4"|head -n1|grep "200 OK"

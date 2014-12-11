@@ -1,6 +1,13 @@
 (ns shelter.secret
+  (:require [shelter.config :as config])
   (:import [org.mindrot.jbcrypt BCrypt]
            [com.lambdaworks.crypto SCryptUtil]))
+
+(config/set {:password-chars "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789-_+*?"
+             :password-length 15
+             :scrypt {:n 15 :r 12 :p 1}
+             :bcrypt {:salt_rounds 11}
+             :default-hash :bcrypt})
 
 
 ;; my jvm crashed when using native lib, did not crash with scala
@@ -11,21 +18,30 @@
   secret, which is a map holding the hashed data with additional
   properties."
   [plain & more]
-  (let [opts (apply hash-map more)
-        hash (:hash opts)]
+  (let [moremap (apply hash-map more)
+        hash (or (:hash moremap) (config/get :default-hash))
+        opts (conj (config/get hash) moremap)]
     (cond
-     (= hash :scrypt)
-     (let [n (int (Math/pow 2 (or (opts :n) 15)))
-           r (or (:r opts) 12)
-           p (or (:p opts) 1)]
-       {:type :password
-        :hash :scypt
-        :data (SCryptUtil/scrypt plain n r p)})
+     (= hash :scrypt) {:type :password
+                       :hash :scypt
+                       :data (SCryptUtil/scrypt plain
+                                                (int (Math/pow 2 (opts :n)))
+                                                (:r opts)
+                                                (:p opts))}
      :else
-     (let [rounds (or (:salt_rounds opts) 12)]
        {:type :password
         :hash :bcrypt
-        :data (BCrypt/hashpw plain (BCrypt/gensalt rounds))}))))
+        :data (BCrypt/hashpw plain (BCrypt/gensalt (:salt_rounds opts)))})))
+
+(defn random-string
+  "Create a new string of length LEN using characters from CHARS. Use
+  some default if not specififed."
+  [& [len chars]]
+  (let [alpha (or chars (config/get :password-chars))
+        length (or len (config/get :password-length))]
+    (clojure.string/join
+     (map #(.charAt alpha %)
+          (take length (repeatedly #(int (rand (.length alpha)))))))))
 
 (defn verify-password
   "Verify if a plain password matches a given secret."

@@ -6,6 +6,7 @@
 (ns shelter.core
   (:require
    [shelter.config :as config]
+   [shelter.store :as store]
    [shelter.account :as account]
    [shelter.secret :as secret]
    [shelter.rest :as rest]
@@ -21,27 +22,30 @@
 
 (defonce ^:private nrepl-server (atom nil))
 
-(defn some-valid?
-  "Return true if there is at least one successful secret validation
-  in VALIDATE-RESULT. VALIDATE-RESULT is a sequence of
-  secret-validation pairs as returned from `account/validate'."
-  [validate-result]
-  (or (some second validate-result)
-      false))
-
 (defn verify
   "Return true if name and password can be verified against the user
   database.
 
   If APP is given and the account has a separate password for APP it
   is checked against this password. Otherwise the default password of
-  the account is used."
+  the account is used if the account is enabled for APP."
   [name password & [app]]
-  (some-valid?
-   (account/validate name
-                     password
-                     (and (not-empty app)
-                          (account/secret-app-exists? name app) app))))
+  (store/with-conn conn
+    (cond (account/account-locked? conn name) false
+          (and app (not (account/app-enabled? conn name app))) false
+          :else (let [appsecrets (account/secret-get conn name app)
+                      secrets (if (empty? appsecrets)
+                                (account/secret-get conn name)
+                                appsecrets)
+                      result (secret/verify secrets password)]
+                  (or (some second result) false)))))
+
+(defn set-password
+  "Sets a NEWPW for LOGIN if verification is successful using OLDPW."
+  [login oldpw newpw & [appid]]
+  (if (verify login oldpw appid)
+    (account/secret-update-password login newpw appid)))
+
 
 (defn rest-add-verify-route
   "Add a GET route to the rest handler that verifies account
@@ -60,12 +64,6 @@
        wrap-params
        wrap-json-response)))
 
-(defn set-password
-  "Sets a NEWPW for LOGIN if verification is successful using OLDPW."
-  [login oldpw newpw & [appid]]
-  (if (verify login oldpw appid)
-    (account/update-password login newpw appid)
-    {:error "Authentication failed."}))
 
 
 (defn rest-add-set-password-route
@@ -77,9 +75,9 @@
    (-> (POST "/setpw" [name password newpassword app]
          (or (if (not (and name password newpassword))
                {:status 400 :headers {} :body {:success false :message "No credentials given."}})
-             (if (:error (set-password name password newpassword app))
-               {:status 401 :headers {} :body {:success false :message "Authentication failed."}}
-               {:status 200 :headers {} :body {:success true}})))
+             (if (set-password name password newpassword app)
+               {:status 200 :headers {} :body {:success true}}
+               {:status 401 :headers {} :body {:success false :message "Authentication failed."}})))
        wrap-params
        wrap-json-response)))
 

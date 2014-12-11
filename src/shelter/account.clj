@@ -1,4 +1,11 @@
-(ns shelter.account
+(ns
+    ^{:author "Eike Kettner",
+      :doc "Shelter is a set of functions for managing user accounts.
+
+
+Functions in this namespace modify and read the account database.
+"}
+  shelter.account
   (:require
    [clojure.java.jdbc :as sql]
    [shelter.config :as config]
@@ -6,321 +13,306 @@
    [shelter.store :as store]
    [shelter.secret :as secret]))
 
-;; default values
-(config/set {:password-chars "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789-_+*?"})
-
-
-(defmacro ^:private query-exists? [name query doc]
-  (if (= 1 (reduce (fn [r c] (if (= c \?) (+ 1 r) r)) 0 query))
-    `(defn ~(symbol name)
-       ~doc
-       ([conn# id#]
-          (not= () (sql/query conn# [~query id#])))
-       ([id#]
-          (store/with-conn conn#
-            (~(symbol name) conn# id#))))
-    `(defn ~(symbol name)
-       ~doc
-       ([conn# id1# id2#]
-          (not= () (sql/query conn# [~query id1# id2#])))
-       ([id1# id2#]
-          (store/with-conn conn#
-            (~(symbol name) conn# id1# id2#))))))
-
-(query-exists? "app-exists?"
-               "select appid from shelter_application where appid = ?"
-               "Return true if an application already exists with this ID.")
-
-(query-exists? "account-login-exists?"
-               "select login from shelter_account where login = ?"
-               "Return true if an account with LOGIN already exists.")
-
-(query-exists? "app-granted?"
-               "select * from shelter_account_app where login = ? and appid = ?"
-               "Return true if there is a mapping for login and appid.")
-
-(query-exists? "alias-exists?"
-               "select loginalias from shelter_alias where loginalias = ?"
-               "Return true if the given alias already exists.")
-
-(query-exists? "secret-default-exists?"
-               "select data from shelter_secret where login = ? and appid is null"
-               "Return true if a default secret exists for a given login.")
-
-(query-exists? "secret-app-exists?"
-               "select data from shelter_secret where login = ? and appid = ?"
-               "Return true if a application specific secret exists for a given login and appid.")
-
-(defn resolve-alias
-  "Resolve the given alias to the login it belongs.
-  If a login is given, it is returned."
-  ([alias]
-   (store/with-conn conn
-     (resolve-alias conn alias)))
-   ([conn alias]
-    (or (-> (sql/query conn ["select * from shelter_alias where loginalias = ?" alias])
+(defn- something-exists?
+  [conn table query]
+  (not= (-> (sql/query conn
+                       (into [(str "select count(*) as count from shelter_" (name table) " where " (first query))]
+                             (rest query)))
             (first)
-            (:login))
-        (-> (sql/query conn ["select login from shelter_account where login = ?" alias])
-            (first)
-            (:login)))))
+            (:count))
+        0))
+
+(defn login-exists?
+  "Check whether the given LOGIN exists. Do not resolve aliases."
+  [conn login]
+  (something-exists? conn :account ["login = ?" login]))
+
+(defn alias-exists?
+  "Check whether the given ALIAS exists."
+  [conn alias]
+  (something-exists? conn :alias ["loginalias = ?" alias]))
 
 (defn account-exists?
-  "Checks whether an account with the given login or alias exists."
-  ([conn login-or-alias]
-   (or (account-login-exists? login-or-alias)
-       (if (not (empty? (sql/query conn ["select loginalias from shelter_alias where loginalias = ?" login-or-alias])))
-         true)))
-  ([login-or-alias]
-   (store/with-conn conn
-     (account-exists? conn login-or-alias))))
+  "Check whether an account already exists for LOGIN. Resolve
+  aliases."
+  [conn login]
+  (or (login-exists? conn login) (alias-exists? conn login)))
 
-(defn list-aliases
+(defn alias-resolve
+  "Resolve the given alias to the login it belongs.
+  If a login is given, it is returned."
+  [conn alias]
+  (or (-> (sql/query conn ["select * from shelter_alias where loginalias = ?" alias])
+          (first)
+          (:login))
+      (-> (sql/query conn ["select login from shelter_account where login = ?" alias])
+          (first)
+          (:login))))
+
+(defn alias-list
   "List all aliases of the given login."
-  ([login]
-   (store/with-conn conn
-     (list-aliases conn login)))
-  ([conn login]
-   (let [resolved (resolve-alias conn login)]
-     (vec (map #(:loginalias %)
-               (sql/query conn ["select loginalias from shelter_alias where login = ?" resolved]))))))
+  [conn login]
+  (let [resolved (alias-resolve conn login)]
+    (mapv #(:loginalias %)
+          (sql/query conn ["select loginalias from shelter_alias where login = ?" resolved]))))
 
-(defn add-alias
+(defn alias-add
   "Add an ALIAS for the account LOGIN.
   Aliases must be globally unique."
-  ([login alias]
-   (store/with-conn conn
-     (add-alias conn login alias)))
-  ([conn login alias]
-   (let [resolved (resolve-alias conn login)
-         data {:loginalias alias :login resolved}]
-     (or (if (not (account-login-exists? conn resolved)) {:error "Account does not exist."})
-         (if (account-exists? conn alias) {:error "The alias is already in use."})
-         (do
-           (sql/insert! conn :shelter_alias data)
-           data)))))
+  [conn login alias]
+  (let [resolved (alias-resolve conn login)
+        data {:loginalias alias :login resolved}]
+    (if (and resolved (not (account-exists? conn alias)))
+      (do
+        (sql/insert! conn :shelter_alias data)
+        data))))
 
-(defn remove-alias
+(defn alias-remove
   "Remove the mapping to the given alias."
-  ([alias]
-   (store/with-conn conn
-     (remove-alias conn alias)))
-  ([conn alias]
-   (let [rc (first (sql/delete! conn :shelter_alias [ "loginalias = ?" alias ]))]
-     (if (= 0 rc)
-       {:error "The alias does not exist."}
-       true))))
+  [conn alias]
+  (not= 0
+        (first (sql/delete! conn :shelter_alias [ "loginalias = ?" alias ]))))
 
-(defn list-applications
-  ([] (store/with-conn conn
-        (list-applications conn)))
-  ([conn]
-   (sql/query conn "select * from shelter_application")))
 
-(defn add-application
-  "Adds a new application into the database."
-  ([id name]
-   (store/with-conn conn
-     (add-application conn id name)))
-  ([conn id name]
-   (if (app-exists? conn id)
-     {:error "An application exists with this name."}
-     (let [app {:appid id :appname name}]
-       (sql/insert! conn :shelter_application app)
-       app))))
+(defn app-exists?
+  "Check whether an app exists with id ID."
+  [conn id]
+  (something-exists? conn :application ["appid = ?" id]))
 
-(defn grant-app
+(defn app-list
+  "Return the list of registered applications."
+  [conn]
+  (sql/query conn "select * from shelter_application"))
+
+(defn app-add
+  "Add a new application into the database."
+  [conn id name]
+  (if (not (app-exists? conn id))
+    (let [app {:appid id :appname name}]
+      (sql/insert! conn :shelter_application app)
+      app)))
+
+(defn app-remove
+  "Remove the given app and all its references."
+  [conn appid]
+  (if (app-exists? conn appid)
+    (do (doseq [kw [:shelter_account_app :shelter_secret :shelter_account_property :shelter_application]]
+          (sql/delete! conn kw ["appid = ?" appid]))
+        true)))
+
+(defn app-enabled?
+  "Check whether APPID is enabled for LOGIN."
+  [conn login appid]
+  (something-exists? conn :account_app ["login = ? and appid = ?" login appid]))
+
+(defn app-enable
   "Grant the account LOGIN all apps in APPIDS."
-  ([login appids]
-   (store/with-conn conn
-     (grant-app conn login appids)))
-  ([conn login appids]
-   {:pre [ (vector? appids) ]}
-   (let [resolved (resolve-alias conn login)]
-     (or (if (not resolved) {:error "Account does not exist."})
-         (if (some false? (map app-exists? appids))
-           {:error "The appids vector contains unknown appids."})
-         (doseq [aid appids]
-           (let [data {:login login :appid aid}]
-             (if (not (app-granted? conn login aid))
-               (sql/insert! conn :shelter_account_app data))))
-         true))))
+  [conn login appids]
+  (let [ids (if (string? appids) [appids] appids)
+        resolved (alias-resolve conn login)]
+    (if (and resolved (every? true? (map #(app-exists? conn %) ids)))
+      (do (doseq [aid ids]
+            (let [data {:login login :appid aid}]
+              (if (not (app-enabled? conn login aid))
+                (sql/insert! conn :shelter_account_app data))))
+          true))))
 
-(defn revoke-app
+
+(defn app-disable
   "Revoke apps in APPIDs from account LOGIN."
-  ([login appids]
-   (store/with-conn conn
-     (revoke-app conn login appids)))
-  ([conn login appids]
-   {:pre [ (vector? appids) ]}
-   (let [resolved (resolve-alias conn login)]
-   (or (if (not resolved)
-         {:error "Account does not exist."})
-       (if (some false? (map app-exists? appids))
-         {:error "The appids vector contains unknown appids."})
-       ;;todo improve by constructing a vector of all conditions
-       (doseq [aid appids]
-         (let [data ["login = ? and appid = ?"  resolved aid]]
-           (sql/delete! conn :shelter_account_app data)))
-       true))))
+  [conn login appids]
+  (let [ids (if (string? appids) [appids] appids)
+        resolved (alias-resolve conn login)]
+    (if (and resolved (every? true? (map #(app-exists? conn %) ids)))
+      (do (doseq [aid ids]
+            (let [data ["login = ? and appid = ?"  resolved aid]]
+              (sql/delete! conn :shelter_account_app data)))
+          true))))
 
-(defn account-apps
+(defn app-list-enabled
   "Return all granted apps for account LOGIN."
-  ([login]
-   (store/with-conn conn
-     (account-apps conn login)))
-  ([conn login]
-   (let [resolved (resolve-alias conn login)]
-     (or (if (not resolved) {:error "Account does not exist."})
-         (sql/query conn ["select t1.* from shelter_application t1, shelter_account_app t2 where t1.appid = t2.appid and t2.login = ?" resolved])))))
+  [conn login]
+  (let [resolved (alias-resolve conn login)]
+    (if resolved
+      (sql/query conn [(str "select t1.* from shelter_application t1, shelter_account_app t2"
+                            " where t1.appid = t2.appid and t2.login = ?")
+                       resolved]))))
 
-(defn update-password
-  "Update the password for the given account and optionally
-  application. A password is created, if it does not exist yet."
-  ([login password appid]
-   (store/with-conn conn
-     (update-password conn login password appid)))
-  ([conn login password appid]
-   (let [resolved (resolve-alias conn login)]
-     (or (if (not resolved) {:error "Account does not exist."})
-         (if (and appid (not (app-exists? appid)))
-           {:error "The application does not exist."})
-         (let [secret (secret/make-password password)
-               data (-> secret (assoc :login resolved) (assoc :appid appid))
-               update? (if appid (secret-app-exists? conn resolved appid)
-                           (secret-default-exists? conn resolved))]
-           (apply
-            (if update? sql/update! sql/insert!)
-            (filterv #(not= nil %)
-                     [conn :shelter_secret
-                      data (if update?
-                             (if appid
-                               ["type = ':password' and login = ? and appid = ?" resolved appid]
-                               ["type = ':password' and login = ? and appid is null" resolved]))])))))))
 
-(defn reset-password
-  "Reset the password of LOGIN to some random value."
-  ([login appid]
-   (store/with-conn conn
-     (reset-password conn login appid)))
-  ([conn login appid]
-   (let [alpha (config/get :password-chars)
-         len 15
-         pw (clojure.string/join
-             (map #(.charAt alpha %)
-                  (take len (repeatedly #(int (rand (.length alpha)))))))]
-     (update-password login pw appid)
-     pw)))
+(defn secret-exists?
+  [conn login & [appid]]
+  (if appid
+    (something-exists? conn :secret ["login = ? and appid = ?" login appid])
+    (something-exists? conn :secret ["login = ? and appid is null" login])))
 
-(defn get-secrets
+(defn secret-update
+  "Update the secret for the given account and optionally
+  application. A secret is created, if it does not exist yet. SECRET
+  should be a secret map as created by `secret/make-secret'."
+  ([conn login secret & [appid]]
+   (let [resolved (alias-resolve conn login)]
+     (if (and resolved (if appid (app-exists? conn appid) true))
+       (let [data (-> secret
+                    (assoc :login resolved)
+                    (assoc :appid appid)
+                    (update-in [:type] name)
+                    (update-in [:hash] name))
+             update? (secret-exists? conn resolved appid)
+             result (apply
+                     (if update? sql/update! sql/insert!)
+                     (filterv #(not= nil %)
+                              [conn :shelter_secret data
+                               (if update?
+                                 (if appid
+                                   ["type = 'password' and login = ? and appid = ?" resolved appid]
+                                   ["type = 'password' and login = ? and appid is null" resolved]))]))]
+         (not (empty? result)))))))
+
+(defn secret-update-password
+  "Update the secret using the given plain text password."
+  [conn login password & [appid]]
+  (let [secret (secret/make-password password)]
+    (secret-update conn login secret appid)))
+
+(defn secret-reset-password
+  "Reset the password for the given account to some random
+  value and return it."
+  [conn login & [appid]]
+  (let [pw (secret/random-string)]
+    (if (secret-update-password conn login pw appid)
+      pw)))
+
+(defn secret-get
   "Return the secrets of the given account for the given
   application. If there is no application specific secret, the default
   secrets are returned as if APPID were nil. There may be multiple
   secrets (with different type), return them in a sequence."
-  ([login appid]
-   (store/with-conn conn
-     (get-secrets conn login appid)))
-  ([conn login appid]
-   (let [resolved (resolve-alias conn login)]
-     (or (if (not resolved) {:error "The account does not exist."})
-         (if (and appid (not (app-exists? conn appid))) {:error "The application does not exist."})
-         (let [query "select type, hash, data from shelter_secret where "
-               sec-app (if appid
-                         (sql/query conn [(str query "login = ? and appid = ?")
-                                          resolved appid]))]
-           (or sec-app
-               (sql/query conn [(str query " appid is null and login = ?") resolved])))))))
+  [conn login & [appid]]
+  (let [resolved (alias-resolve conn login)]
+    (if (and resolved (if appid (app-exists? conn appid) true))
+      (let [query "select type, hash, data from shelter_secret where "
+            secrets (if appid
+                      (sql/query conn [(str query "login = ? and appid = ?") resolved appid])
+                      (sql/query conn [(str query " appid is null and login = ?") resolved]))]
+        (mapv (fn [m]
+                (-> m
+                  (update-in [:hash] keyword)
+                  (update-in [:type] keyword)))
+              secrets)))))
 
+(defn account-properties-get
+  "Return the property map for the given account and application."
+  [conn login & [appid]]
+  (let [resolved (alias-resolve conn login)
+        query "select * from shelter_account_property where "]
+    (if (and resolved (if appid (app-exists? conn appid) true))
+      (first
+       (if appid
+         (sql/query conn [(str query "appid = ? and login = ?") appid resolved])
+         (sql/query conn [(str query "appid is null and login = ?") resolved]))))))
 
-(defn get-properties
-  ([login appid]
-   (store/with-conn conn
-     (get-properties conn login appid)))
-  ([conn login appid]
-   (let [resolved (resolve-alias conn login)]
-     (or (if (not resolved) {:error "The account does not exist."})
-         (if (and appid (not (app-exists? conn appid))) {:error "The application does not exist."})
-         (first
-          (if appid
-            (sql/query conn ["select * from shelter_account_property where appid = ? and login = ?" appid resolved])
-            (sql/query conn ["select * from shelter_account_property where appid is null and login = ?" resolved])))))))
+(defn account-properties-set
+  "Sets the property map PROPS to the account and
+  application. Properties are currently: name, email and homepage."
+  [conn login appid props]
+  (let [resolved (alias-resolve conn login)]
+    (if (and resolved (if appid (app-exists? conn appid) true))
+      (let [this-props (account-properties-get conn login appid)
+            result (if (empty? this-props)
+                     (sql/insert! conn :shelter_account_property
+                                  (-> props
+                                    (assoc :login resolved)
+                                    (assoc :appid appid)))
+                     (sql/update! conn :shelter_account_property
+                                  (conj this-props (-> props
+                                                     (dissoc :login)
+                                                     (dissoc :appid)))
+                                  (if appid
+                                    ["appid = ? and login = ?" appid resolved]
+                                    ["appid is null and login = ?" resolved])))]
+        (not (empty? result))))))
 
-(defn set-properties
-  ([login appid props]
-   (store/with-conn conn
-     (set-properties conn login appid props)))
-  ([conn login appid props]
-   (let [resolved (resolve-alias conn login)]
-     (or (if (not resolved) {:error "The account does not exist."})
-         (if (and appid (not (app-exists? conn appid))) {:error "The application does not exist."})
-         (let [this-props (get-properties conn login appid)]
-           (if (empty? this-props)
-             (sql/insert! conn :shelter_account_property
-                          (-> props
-                              (assoc :login resolved)
-                              (assoc :appid appid)))
-             (sql/update! conn :shelter_account_property
-                          (conj this-props (-> props
-                                               (dissoc :login)
-                                               (dissoc :appid)))
-                          (if appid
-                            ["appid = ? and login = ?" appid resolved]
-                            ["appid is null and login = ?" resolved]))))))))
-
-
-(defn retrieve
-  "Loads an account by a given name."
-  ([name]
-   (store/with-conn conn
-     (retrieve conn name)))
-  ([conn name]
-   (let [resolved (resolve-alias conn name)]
-     (or (if (not resolved) {:error "The account does not exist."})
-         {:name resolved
-          :aliases (list-aliases conn resolved)
-          :apps (account-apps conn resolved)
-          :profiles (reduce
-                     conj
-                     {:default {:secrets (get-secrets conn resolved nil)
-                                :properties (get-properties conn resolved nil)}}
-                     (map (fn [appid]
-                            {(keyword appid) {:secrets (get-secrets conn resolved appid)
-                                              :properties (get-properties conn resolved appid)}})
-                          (map :appid (account-apps conn resolved))))}))))
-
-(defn register
-  "Register a new ACCOUNT. The only required data is `login'.
-Values for email, name and pass are optional."
-  [login & [pass name email]]
-  {:pre [ login ] }
-  (let [secret (if pass (secret/make-password pass))]
-    (store/with-conn conn
-      (if (account-exists? conn login)
-        {:error "This login name is used. Please try another one."}
-        (do
-          (sql/insert! conn :shelter_account
-                       {:login login :name name :email email})
-          (if secret
-            (sql/insert! conn :shelter_secret (assoc secret :login login)))
-          true)))))
-
-(defn list-accounts
-  ([]
-   (store/with-conn conn
-     (list-accounts conn)))
-  ([conn]
-   (vec (map (fn [login]
+(defn account-list
+  "Return a list with basic properties of each account."
+  [conn]
+  (mapv (fn [login]
           {:login login
-           :apps (vec (map :appid (account-apps conn login)))
-           :aliases (list-aliases conn login)})
-        (map :login(sql/query conn "select login from shelter_account"))))))
+           :apps (mapv :appid (app-list-enabled conn login))
+           :aliases (alias-list conn login)})
+        (map :login(sql/query conn "select login from shelter_account"))))
 
-(defn validate
-  "Load the account of NAME and validate it by checking DATA against
-  the accounts secrets. Use the default profile unless APP is
-  given. DATA is usually a plain password."
-  [name data & [app]]
-  (when-let [account (retrieve name)]
-    (let [secrets (get-secrets name app)]
-      (if (and (not (:error secrets)) (not-empty secrets))
-        (secret/verify secrets data)))))
+
+(defn account-details-get
+  "Get the account details, the registration information and admin
+  info. Return a map with following properties: locked bool, name
+  text, email text,lastlogin int, logincount int, failedlogins int"
+  [conn login]
+  (let [resolved (alias-resolve conn login)
+        results (if resolved
+                  (sql/query conn [(str "select locked,name,email,lastlogin,logincount,failedlogins "
+                                        "   from shelter_account where login = ?") resolved]))]
+    (if (not (empty? results))
+      (-> (first results)
+        (update-in [:locked] #(not= % 0))
+        (update-in [:logincount] #(or % 0))
+        (update-in [:failedlogins] #(or % 0))))))
+
+(defn account-details-set
+  "Set the details map to the account. If DETAILS is a function, it is
+  expected to return a new details map given the current details."
+  [conn login details]
+  (let [resolved (alias-resolve conn login)]
+    (if resolved
+      (let [this-details (account-details-get conn login)
+            new-map (if (fn? details)
+                      (details this-details)
+                      (conj this-details details))
+            result (sql/update! conn :shelter_account
+                                (-> new-map
+                                  (dissoc :login)
+                                  (update-in [:locked] #(if % 1 0)))
+                                ["login = ?" resolved])]
+        (not (empty? result))))))
+
+
+(defn account-get
+  "Load an account and all its properties by a given name."
+  [conn name]
+  (let [resolved (alias-resolve conn name)]
+    (if resolved
+      {:name resolved
+       :details (account-details-get conn resolved)
+       :aliases (alias-list conn resolved)
+       :apps (app-list-enabled conn resolved)
+       :profiles (reduce
+                  conj
+                  {:default {:secrets (secret-get conn resolved nil)
+                             :properties (account-properties-get conn resolved nil)}}
+                  (map (fn [appid]
+                         {(keyword appid) {:secrets (secret-get conn resolved appid)
+                                           :properties (account-properties-get conn resolved appid)}})
+                       (map :appid (app-list-enabled conn resolved))))})))
+
+(defn account-locked?
+  "Check whether the given account is locked."
+  [conn login]
+  (:locked (account-details-get conn login)))
+
+(defn account-set-locked
+  "Lock or unlock an account. LOCKED is coerced into a boolean."
+  [conn login locked]
+  (account-details-set conn login {:locked (boolean locked)}))
+
+
+(defn account-register
+  "Register a new account. Activate the account if a password is
+  given. Otherwise create a locked account. DETAILS may be an initial
+  details map."
+  [conn login & [pass details]]
+  (if (not (account-exists? conn login))
+    (let [ins (do
+                (sql/insert! conn :shelter_account {:login login})
+                (account-details-set conn login (assoc details :locked (empty? pass))))]
+      (if (and pass ins)
+        (secret-update-password conn login pass))
+      ins)))

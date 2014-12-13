@@ -4,10 +4,14 @@
 # authenticate an account. The exit code tells about success or
 # failure.
 #
-# This works only, if the default `add-rest-verify-route' is enabled.
+# This works only, if the default `add-verify-route' is enabled.
 
 if [ -z "$CURL_BIN" ]; then
     CURL_BIN=curl
 fi
 
-$CURL_BIN -I -s "http://$1/verify?name=$2&password=$3&app=$4"|head -n1|grep "200 OK"
+COMMAND="$CURL_BIN -s -D /dev/stdout --data-urlencode login=$2 --data-urlencode password=$3 "
+if [ -n "$4" ]; then
+    COMMAND="$COMMAND --data-urlencode app=$4 "
+fi
+$COMMAND "http://$1/verify/form" | head -n1 | grep "200 OK"

@@ -1,7 +1,9 @@
 (ns shelter.secret
   (:require [shelter.config :as config])
   (:import [org.mindrot.jbcrypt BCrypt]
-           [com.lambdaworks.crypto SCryptUtil]))
+           [com.lambdaworks.crypto SCryptUtil]
+           [javax.crypto Mac]
+           [javax.crypto.spec SecretKeySpec]))
 
 (config/set {:password-chars "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789-_+*?"
              :password-length 15
@@ -59,3 +61,15 @@
          [(:type secret)
           (verify-password secret data)])
        secrets))
+
+(defn sign
+  "Signs DATA using KEY (both strings) and returns a signature as
+  hex-string."
+  [key data]
+  (let [mac (Mac/getInstance "HMACSHA256")
+        seckey (SecretKeySpec. (.getBytes key) (.getAlgorithm mac))
+        sig  (-> (doto mac
+                   (.init seckey)
+                   (.update (.getBytes data)))
+               .doFinal)]
+    (apply str (map #(format "%x" %) sig))))

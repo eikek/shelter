@@ -17,10 +17,11 @@
       (def conn c)
       (f))))
 
+(use-fixtures :each with-new-database)
+
 (defn insert-account [name]
   (sql/insert! conn :shelter_account {:login name }))
 
-(use-fixtures :each with-new-database)
 
 (deftest login-tests
   (testing "non existing account"

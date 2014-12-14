@@ -137,6 +137,11 @@
          (System/currentTimeMillis))
       false)))
 
+(defn- authtoken-username-app
+  "Given an authenticator token, return the username and app-id."
+  [token]
+  (let [[salt time login app sigthere] (clojure.string/split token #"\$")]
+    [login (if (empty? app) nil app)]))
 
 (defn- assoc-if [m key value]
   (if value
@@ -175,12 +180,18 @@
 
 (defn wrap-verify-auth-cookie
   "Wrap the request and only proceed if it contains a valid
-  authenticator token cookie."
+  authenticator token cookie. The username and app-id is extracted
+  from the cookie and put into the params map of the request."
   [handler]
   (fn [request]
     (let [token (get-in request [:cookies (config/get :cookie-name) :value])]
       (if (and token (verify-authtoken token))
-        ((authtoken-cookie request) (handler request))
+        (let [userapp (authtoken-username-app token)
+              params (-> (:params request)
+                       (assoc :login (first userapp))
+                       (assoc :app (second userapp)))
+              wrappedreq (assoc request :params params)]
+          ((authtoken-cookie wrappedreq) (handler wrappedreq)))
         (-> (response "Not authenticated.")
           (status 403)
           (assoc :cookies { (config/get :cookie-name) {:value "delete" :max-age 1}}))))))
@@ -200,6 +211,18 @@
         (if (apply checkfn values)
           {:status 200 :headers {} :body {:success true}}
           {:status 401 :headers {} :body {:success false :message "Request failed."}})))))
+
+(defn make-verify-cookie-handler
+  "A simple ring handler that only checks if a cookie is a valid
+  authenticator."
+  []
+  (-> (make-handler (fn [] true))
+    wrap-verify-auth-cookie
+    cookies/wrap-cookies
+    kwp/wrap-keyword-params
+    json/wrap-json-params
+    json/wrap-json-response))
+
 
 (defn make-verify-form-handler
   "Create a handler that accepts requests with a form body containing
@@ -243,9 +266,9 @@
   app."
   [setpass-fn]
   (-> (make-handler setpass-fn :login :password :newpassword :app)
+    kwp/wrap-keyword-params
     wrap-verify-auth-cookie
     cookies/wrap-cookies
-    kwp/wrap-keyword-params
     params/wrap-params
     json/wrap-json-response))
 
@@ -257,8 +280,26 @@
   app."
   [setpass-fn]
   (-> (make-handler setpass-fn :login :password :newpassword :app)
+    kwp/wrap-keyword-params
     wrap-verify-auth-cookie
     cookies/wrap-cookies
-    kwp/wrap-keyword-params
     json/wrap-json-params
     json/wrap-json-response))
+
+(defn make-list-apps-json-handler
+  "Create a ring handler that returns a list of applications enabled
+  for the current user."
+  []
+  (let [handler (fn [request]
+                  (let [login (:login (:params request))]
+                    (if login
+                      (store/with-conn conn
+                        (if (account/account-exists? conn login)
+                          {:status 200 :body {:success true :apps (account/app-list-enabled conn login)}}
+                          {:status 403 :body {:success false }}))
+                      {:status 403 :body {:success false}})))]
+    (-> handler
+      wrap-verify-auth-cookie
+      cookies/wrap-cookies
+      kwp/wrap-keyword-params
+      json/wrap-json-response)))

@@ -10,7 +10,7 @@
    [shelter.account :as account]
    [shelter.secret :as secret]
    [shelter.rest :as rest]
-   [compojure.core :refer [GET POST]]
+   [compojure.core :refer [ANY GET POST]]
    [clojure.java.io :as f]
    [clojure.tools.nrepl.server :as nrepl])
   (:gen-class :main true))
@@ -53,6 +53,8 @@
   using a map to be encoded as json."
   []
   (rest/add-routes
+   :verifycookie (ANY "/api/verify/cookie" request
+                   ((rest/make-verify-cookie-handler) request))
    :verifyform (POST "/api/verify/form" request
                  ((rest/make-verify-form-handler verify) request))
    :verifyjson (POST "/api/verify/json" request
@@ -68,6 +70,13 @@
    :setpassjson (POST "/api/setpass/json" request
                   ((rest/make-setpassword-json-handler set-password) request))))
 
+(defn add-listapps-route
+  "Add a GET route to retrieve the applications enabled for the
+  current user."
+  []
+  (rest/add-routes
+   :listapps (GET "/api/listapps" request
+               ((rest/make-list-apps-json-handler) request))))
 
 (defn -main [& args]
   (println "Shelter is starting up…")

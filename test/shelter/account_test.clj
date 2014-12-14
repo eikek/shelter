@@ -22,6 +22,8 @@
 (defn insert-account [name]
   (sql/insert! conn :shelter_account {:login name }))
 
+(defn string< [s1 s2]
+  (> 0 (.compareTo s1 s2)))
 
 (deftest login-tests
   (testing "non existing account"
@@ -45,10 +47,12 @@
     (is (= false (app-exists? conn "mail")))
     (is (= [] (app-list conn))))
   (testing "app crud"
-    (is (= {:appid "mail" :appname "a mail app"}
+    (is (= {:appid "mail", :appname "a mail app", :url nil, :description nil}
            (app-add conn "mail" "a mail app")))
-    (is (= [{:appid "mail" :appname "a mail app"}]
+    (is (= [{:appid "mail", :appname "a mail app", :url nil, :description nil}]
            (app-list conn)))
+    (is (= {:appid "wiki", :appname "Wiki", :url "http://wiki.com", :description nil}
+           (app-add conn "wiki" "Wiki" "http://wiki.com")))
     (is (= true
            (app-exists? conn "mail")))
     (is (= true (app-remove conn "mail")))
@@ -56,8 +60,9 @@
   (testing "app enable/disable"
     (insert-account "eike")
     (app-add conn "mail" "a mail app")
-    (is (= [{:appid "mail" :appname "a mail app"}]
-           (app-list conn)))
+    (is (= [{:appid "mail", :appname "a mail app", :url nil, :description nil}
+            {:appid "wiki", :appname "Wiki", :url "http://wiki.com", :description nil}]
+           (sort #(string< (:appid %1) (:appid %2)) (app-list conn))))
     (is (= [] (app-list-enabled conn "eike")))
     (is (= true (app-enable conn "eike" "mail")))
     (is (= true (app-disable conn "eike" "mail"))))

@@ -86,9 +86,9 @@ Functions in this namespace modify and read the account database.
 
 (defn app-add
   "Add a new application into the database."
-  [conn id name]
+  [conn id name & [url description]]
   (if (not (app-exists? conn id))
-    (let [app {:appid id :appname name}]
+    (let [app {:appid id :appname name :url url :description description}]
       (sql/insert! conn :shelter_application app)
       app)))
 

@@ -37,7 +37,9 @@
                     foreign key (login) references shelter_account(login) on delete cascade)"
                  "create table if not exists shelter_application (
                     appid text primary key,
-                    appname text)"
+                    appname text,
+                    url text,
+                    description text)"
                  "create table if not exists shelter_account_app (
                     login text, appid text,
                     primary key (login, appid)

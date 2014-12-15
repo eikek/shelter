@@ -38,13 +38,79 @@
                       result (secret/verify secrets password)]
                   (or (some second result) false)))))
 
-(defn set-password
-  "Sets a NEWPW for LOGIN if verification is successful using OLDPW."
-  [login oldpw newpw & [appid]]
-  (if (verify login oldpw appid)
-    (store/with-conn conn
-      (account/secret-update-password conn login newpw appid))))
 
+(defn set-application
+  "Adds or updates an application given as map."
+  [app]
+  (store/with-conn conn
+    (account/app-set conn app)))
+
+(defn list-applications
+  "List all applications"
+  []
+  (store/with-conn conn
+    (account/app-list conn)))
+
+(defn register-account
+  "Registers a new account. If PASS is given, the account is active,
+  otherwise locked."
+  [login & [pass details]]
+  (store/with-conn conn
+    (account/account-register conn login pass details)))
+
+(defn list-accounts
+  "List all accounts."
+  []
+  (store/with-conn conn
+    (account/account-list conn)))
+
+(defn show-account
+  "Shows all details about an account."
+  [login]
+  (store/with-conn conn
+    (account/account-get conn login)))
+
+(defn set-password
+  "Set a new password for an account and app."
+  [login password & [appid]]
+  (store/with-conn conn
+    (account/secret-set-password conn login password appid)))
+
+(defn reset-password
+  "Resets the password for an account and app to a random one."
+  [login & [appid]]
+  (store/with-conn conn
+    (account/secret-reset-password conn login appid)))
+
+(defn set-account-locked
+  "Set the account locked/not locked."
+  [login locked]
+  (store/with-conn conn
+    (account/account-set-locked conn login locked)))
+
+(defn enable-app
+  "Enables an app for an account."
+  [login appid]
+  (store/with-conn conn
+    (account/app-enable conn login appid)))
+
+(defn disable-app
+  "Disables an app for an account."
+  [login appid]
+  (store/with-conn conn
+    (account/app-disable conn login appid)))
+
+(defn add-alias
+  "Adds a new alias for an account."
+  [login alias]
+  (store/with-conn conn
+    (account/alias-add conn login alias)))
+
+(defn remove-alias
+  "Removes an alias mapping for an account."
+  [alias]
+  (store/with-conn conn
+    (account/alias-remove conn alias)))
 
 (defn add-verify-routes
   "Add POST routes to the rest handler that verifies account
@@ -60,15 +126,22 @@
    :verifyjson (POST "/api/verify/json" request
                  ((rest/make-verify-json-handler verify) request))))
 
+(defn- user-set-password
+  "Sets a NEWPW for LOGIN if verification is successful using OLDPW."
+  [login oldpw newpw & [appid]]
+  (if (verify login oldpw appid)
+    (store/with-conn conn
+      (account/secret-set-password conn login newpw appid))))
+
 (defn add-setpassword-routes
   "Add a POST routes to the rest handler to set a new password given
   the current credentials either via json or form body."
   []
   (rest/add-routes
    :setpassform (POST "/api/setpass/form" request
-                  ((rest/make-setpassword-form-handler set-password) request))
+                  ((rest/make-setpassword-form-handler user-set-password) request))
    :setpassjson (POST "/api/setpass/json" request
-                  ((rest/make-setpassword-json-handler set-password) request))))
+                  ((rest/make-setpassword-json-handler user-set-password) request))))
 
 (defn add-listapps-route
   "Add a GET route to retrieve the applications enabled for the

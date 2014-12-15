@@ -47,21 +47,23 @@
     (is (= false (app-exists? conn "mail")))
     (is (= [] (app-list conn))))
   (testing "app crud"
-    (is (= {:appid "mail", :appname "a mail app", :url nil, :description nil}
-           (app-add conn "mail" "a mail app")))
+    (is (= true (app-set conn {:appid "mail" :appname "a mail app"})))
     (is (= [{:appid "mail", :appname "a mail app", :url nil, :description nil}]
            (app-list conn)))
-    (is (= {:appid "wiki", :appname "Wiki", :url "http://wiki.com", :description nil}
-           (app-add conn "wiki" "Wiki" "http://wiki.com")))
-    (is (= true
-           (app-exists? conn "mail")))
+    (is (= true (app-set conn {:appid "wiki" :appname "Wiki" :url "http://wiki.com"})))
+    (is (= {:appid "wiki" :appname "Wiki" :url "http://wiki.com" :description nil}
+           (app-get conn "wiki")))
+    (is (= true (app-set conn {:appid "wiki" :url "http://wiki.org"})))
+    (is (= {:appid "wiki" :appname "Wiki" :url "http://wiki.org" :description nil}
+           (app-get conn "wiki")))
+    (is (= true (app-exists? conn "mail")))
     (is (= true (app-remove conn "mail")))
     (is (= false (app-exists? conn "mail"))))
   (testing "app enable/disable"
     (insert-account "eike")
-    (app-add conn "mail" "a mail app")
+    (app-set conn {:appid "mail" :appname "a mail app"})
     (is (= [{:appid "mail", :appname "a mail app", :url nil, :description nil}
-            {:appid "wiki", :appname "Wiki", :url "http://wiki.com", :description nil}]
+            {:appid "wiki", :appname "Wiki", :url "http://wiki.org", :description nil}]
            (sort #(string< (:appid %1) (:appid %2)) (app-list conn))))
     (is (= [] (app-list-enabled conn "eike")))
     (is (= true (app-enable conn "eike" "mail")))
@@ -72,23 +74,23 @@
 (deftest app-cascade-remove
   (testing "remove app"
     (insert-account "eike")
-    (app-add conn "mail" "a mail app")
+    (app-set conn {:appid "mail" :appname "a mail app"})
     (app-enable conn "eike" "mail")
     (app-remove conn "mail")
     (is (= false (app-exists? conn "mail")))
     (is (= false (app-enabled? conn "eike" "mail")))))
 
-(deftest secret-update-test
+(deftest secret-set-test
   (let [secret (secret/make-password (secret/random-string 10)
                                      :salt_rounds 8)]
     (insert-account "eike")
     (testing "wrong login"
-      (is (= nil (secret-update conn "bla" secret))))
+      (is (= nil (secret-set conn "bla" secret))))
     (testing "wrong app"
-      (is (= nil (secret-update conn "eike" secret "noapp"))))
+      (is (= nil (secret-set conn "eike" secret "noapp"))))
     (testing "update secret"
       (is (= false (secret-exists? conn "eike")))
-      (is (= true (secret-update conn "eike" secret)))
+      (is (= true (secret-set conn "eike" secret)))
       (is (= true (secret-exists? conn "eike"))))
     (testing "update secret for app"
       (is (= false (secret-exists? conn "eike" "mail"))))
@@ -108,7 +110,7 @@
   (insert-account "eike")
   (insert-account "john")
   (alias-add conn "eike" "eikek")
-  (app-add conn "mail" "a mail app")
+  (app-set conn {:appid "mail" :appname "a mail app"})
   (app-enable conn "eike" "mail")
   (testing "list-account"
     (let [list (account-list conn)]

@@ -84,13 +84,23 @@ Functions in this namespace modify and read the account database.
   [conn]
   (sql/query conn "select * from shelter_application"))
 
-(defn app-add
-  "Add a new application into the database."
-  [conn id name & [url description]]
-  (if (not (app-exists? conn id))
-    (let [app {:appid id :appname name :url url :description description}]
-      (sql/insert! conn :shelter_application app)
-      app)))
+(defn app-set
+  "Add a new application into the database, or update an existing
+  one. The app is a map with required keys `:appid' and `:appname' and
+  optinal keys `:url' and `:description'."
+  [conn app]
+  (let [id (:appid app)
+        result (if (app-exists? conn id)
+                 (if id
+                   (sql/update! conn :shelter_application app ["appid = ?" id]))
+                 (if (and id (:appname app))
+                   (sql/insert! conn :shelter_application app)))]
+    (not (empty? result))))
+
+(defn app-get
+  "Return a application by its id"
+  [conn appid]
+  (first (sql/query conn ["select * from shelter_application where appid = ?" appid])))
 
 (defn app-remove
   "Remove the given app and all its references."
@@ -145,7 +155,7 @@ Functions in this namespace modify and read the account database.
     (something-exists? conn :secret ["login = ? and appid = ?" login appid])
     (something-exists? conn :secret ["login = ? and appid is null" login])))
 
-(defn secret-update
+(defn secret-set
   "Update the secret for the given account and optionally
   application. A secret is created, if it does not exist yet. SECRET
   should be a secret map as created by `secret/make-secret'."
@@ -168,18 +178,18 @@ Functions in this namespace modify and read the account database.
                                    ["type = 'password' and login = ? and appid is null" resolved]))]))]
          (not (empty? result)))))))
 
-(defn secret-update-password
+(defn secret-set-password
   "Update the secret using the given plain text password."
   [conn login password & [appid]]
   (let [secret (secret/make-password password)]
-    (secret-update conn login secret appid)))
+    (secret-set conn login secret appid)))
 
 (defn secret-reset-password
   "Reset the password for the given account to some random
   value and return it."
   [conn login & [appid]]
   (let [pw (secret/random-string)]
-    (if (secret-update-password conn login pw appid)
+    (if (secret-set-password conn login pw appid)
       pw)))
 
 (defn secret-get
@@ -303,7 +313,6 @@ Functions in this namespace modify and read the account database.
   [conn login locked]
   (account-details-set conn login {:locked (boolean locked)}))
 
-
 (defn account-register
   "Register a new account. Activate the account if a password is
   given. Otherwise create a locked account. DETAILS may be an initial
@@ -314,5 +323,5 @@ Functions in this namespace modify and read the account database.
                 (sql/insert! conn :shelter_account {:login login})
                 (account-details-set conn login (assoc details :locked (empty? pass))))]
       (if (and pass ins)
-        (secret-update-password conn login pass))
+        (secret-set-password conn login pass))
       ins)))

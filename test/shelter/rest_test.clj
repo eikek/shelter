@@ -43,7 +43,7 @@
   (testing "verify success"
     (account/account-set-locked conn "juli" false)
     (account/account-set-locked conn "jonas" false)
-    (account/secret-update-password conn "jonas" "test")
+    (account/secret-set-password conn "jonas" "test")
     (let [token1 (make-authtoken "juli")
           token2 (make-authtoken "jonas")]
       (is (= true (verify-authtoken token1)))
@@ -57,7 +57,8 @@
 (deftest setpassword-form-test
   (account/account-register conn "jonas" "test")
   (let [token (make-authtoken "jonas")
-        handler (web/routes (make-setpassword-form-handler (fn [a b c [d]] true)))]
+        handler (web/routes (make-setpassword-form-handler (fn [a b c [d]] true)
+                                                           (fn [a b] nil)))]      ;; function that creates cookie value
     (is (= {:status 400,
             :headers {"Content-Type" "application/json; charset=utf-8"},
             :body "{\"success\":false,\"message\":\"Invalid request.\"}"}
@@ -77,7 +78,7 @@
 
 (deftest verify-form-test
   (let [handler (web/routes (make-verify-form-handler (fn [a b & [c]] true)  ;; function that verifies user
-                                                    (fn [a b] nil)))]      ;; function that creates cookie value
+                                                      (fn [a b] nil)))]      ;; function that creates cookie value
     (is (= {:status 400,
             :headers {"Content-Type" "application/json; charset=utf-8"},
             :body "{\"success\":false,\"message\":\"Invalid request.\"}"}

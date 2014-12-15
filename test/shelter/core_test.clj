@@ -20,7 +20,7 @@
 
 (deftest verify-test
   (account/account-register conn "eike" "test")
-  (account/app-add conn "wiki" "a wiki")
+  (account/app-set conn {:appid "wiki" :appname "a wiki"})
   (testing "verify account"
     (is (verify "eike" "test"))
     (is (= false (verify "eike" "other")))
@@ -30,6 +30,6 @@
     (account/app-enable conn "eike" "wiki")
     (is (= true (verify "eike" "test" "wiki"))))
   (testing "verify against app specific"
-    (account/secret-update-password conn "eike" "super" "wiki")
+    (account/secret-set-password conn "eike" "super" "wiki")
     (is (verify "eike" "super" "wiki"))
     (is (= false (verify "eike" "test" "wiki")))))

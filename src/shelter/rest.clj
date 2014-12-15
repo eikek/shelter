@@ -182,7 +182,7 @@
   "Wrap the request and only proceed if it contains a valid
   authenticator token cookie. The username and app-id is extracted
   from the cookie and put into the params map of the request."
-  [handler]
+  [handler & [token-fn]]
   (fn [request]
     (let [token (get-in request [:cookies (config/get :cookie-name) :value])]
       (if (and token (verify-authtoken token))
@@ -191,7 +191,7 @@
                        (assoc :login (first userapp))
                        (assoc :app (second userapp)))
               wrappedreq (assoc request :params params)]
-          ((authtoken-cookie wrappedreq) (handler wrappedreq)))
+          ((authtoken-cookie wrappedreq token-fn) (handler wrappedreq)))
         (-> (response "Not authenticated.")
           (status 403)
           (assoc :cookies { (config/get :cookie-name) {:value "delete" :max-age 1}}))))))
@@ -233,7 +233,10 @@
 
   The response contains a json body with success/failure state which
   is also encoded in the status code. A Set-Cookie header is added
-  that contains an authenticator token."
+  that contains an authenticator token. The token creation is
+  delegated to the function TOKEN-FN. It takes the login and
+  app (which maybe nil) and creates an authenticator token. By default
+  `make-authtoken' is used."
   [verify-fn & [token-fn]]
   (-> (make-handler verify-fn :login :password :app)
     (wrap-authtoken-cookie token-fn)
@@ -248,7 +251,10 @@
 
   The function VERIFY-FN is expected to use the three arguments to
   verify them against an account. A Set-Cookie header is added that
-  contains an authenticator token."
+  contains an authenticator token. The token creation is delegated to
+  the function TOKEN-FN. It takes the login and app (which maybe nil)
+  and creates an authenticator token. By default `make-authtoken' is
+  used."
   [verify-fn & [token-fn]]
   (-> (make-handler verify-fn :login :password :app)
     (wrap-authtoken-cookie token-fn)
@@ -263,11 +269,17 @@
   a new password. It must specify `login', `password' and
   `newpassword' to first authenticate and then set a new password. The
   optional `app' parameter can be used to apply this to a specific
-  app."
-  [setpass-fn]
+  app.
+
+  The request must contain an authenticator cookie to obtain the login
+  from. A new Set-Cookie header is added that contains a new
+  authenticator token. The token creation is delegated to the function
+  TOKEN-FN. It takes the login and app (which maybe nil) and creates
+  an authenticator token. By default `make-authtoken' is used."
+  [setpass-fn & [token-fn]]
   (-> (make-handler setpass-fn :login :password :newpassword :app)
     kwp/wrap-keyword-params
-    wrap-verify-auth-cookie
+    (wrap-verify-auth-cookie token-fn)
     cookies/wrap-cookies
     params/wrap-params
     json/wrap-json-response))
@@ -277,11 +289,17 @@
   a new password. It must specify `login', `password' and
   `newpassword' to first authenticate and then set a new password. The
   optional `app' parameter can be used to apply this to a specific
-  app."
-  [setpass-fn]
+  app.
+
+  The request must contain an authenticator cookie to obtain the login
+  from. A new Set-Cookie header is added that contains a new
+  authenticator token. The token creation is delegated to the function
+  TOKEN-FN. It takes the login and app (which maybe nil) and creates
+  an authenticator token. By default `make-authtoken' is used."
+  [setpass-fn & [token-fn]]
   (-> (make-handler setpass-fn :login :password :newpassword :app)
     kwp/wrap-keyword-params
-    wrap-verify-auth-cookie
+    (wrap-verify-auth-cookie token-fn)
     cookies/wrap-cookies
     json/wrap-json-params
     json/wrap-json-response))

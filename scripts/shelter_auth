@@ -14,4 +14,4 @@ COMMAND="$CURL_BIN -s -D /dev/stdout --data-urlencode login=$2 --data-urlencode 
 if [ -n "$4" ]; then
     COMMAND="$COMMAND --data-urlencode app=$4 "
 fi
-$COMMAND "http://$1/verify/form" | head -n1 | grep "200 OK"
+$COMMAND "http://$1/api/verify/form" | head -n1 | grep "200 OK"

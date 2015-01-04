@@ -6,12 +6,60 @@ to manage virtual user accounts on some server.
 Applications (in the local network) can use shelter to authenticate
 users.
 
+** Data model
+
+Here is an informal diagram of the data model:
+
+#+begin_src ditaa :file datamodel.png
+    +------------+
+    | property   |
+    |            |
+    | o email    |
+    | o name     |
+    | o etc      |
+    +-+--------+-+
+      |1       |1
+      |        +--------+
+      |n                |n
++-----+--------+      +-+------------+
+| account      |n    m| application  |
+| cGRE         |      |              |
+| o login      |------| o appid      |
+| o locked     |      | o appname    |
+| o etc        |      | o etc        |
++----+----+----+      +--------------+
+     |n   |n                |n
+     |    +------------+    |
+     |1                |1   |1
+    ++-------------+  ++----+-------+
+    | alias        |  | secret      |
+    |              |  |             |
+    | o login      |  | o data      |
+    +--------------+  +-------------+
+#+end_src
+
+The central entity is the /account/. It contains basic details like
+locked state, the account name (= /login/) etc. Each account can have
+aliases which are just other login names. This is mainly useful for
+email applications. Furthermore, each account can be associated to an
+/application/. An application is some service (like SMTP or IMAP,
+Websites etc) that asks shelter for authentication and user
+details. An account can have separate secrets (passwords) for
+applications and also separate properties. The "master" or "standard"
+secret is the secret that is not associated to an application. Account
+properties are information provided by the user, like email, full name
+etc (while account details refer to information controlled by the
+admin).
 
 ** Usage
 
 Shelter is only a set of functions on top of a sqlite database that
-contains user account data. It exposes its functionality via the [[https://github.com/clojure/tools.nrepl][nrepl]]
-server.
+contains user account data. It exposes its functionality via the
+[[https://github.com/clojure/tools.nrepl][nrepl]] server and a http
+server. Administration is done via the repl, while client applications
+can use the http interface.
+
+*** Administration
 
 Start shelter using the uberjar or leiningen and connect to the nrepl,
 for example using leiningen (again):
@@ -19,7 +67,6 @@ for example using leiningen (again):
 #+begin_src bash
  lein repl :connect localhost:7989
 #+end_src
-
 
 or Emacs' [[https://github.com/clojure-emacs/cider][cider]] or some other nrepl client. Look at the source files
 for what functions are provided.
@@ -36,6 +83,74 @@ following in a file and pass it to shelter:
   (config/set {:database "/var/lib/shelter/users.db"})
 #+end_src
 
+Look at functions in ~shelter.core~ or define custom shortcuts. Here
+are some simple examples:
+
+Show accounts enabled for the "mail" application:
+#+begin_src clojure
+  (filter (fn [a] (some #(= "mail" %) (:apps a))) (list-accounts))
+#+end_src
+
+Reset passwords of all accounts enabled for the "mail" application:
+#+begin_src clojure
+  (map (fn [login]
+         [login (reset-password login)])
+       (filter (fn [a] (some #(= "mail" %) (:apps a))) (list-accounts)))
+#+end_src
+
+
+*** http interface
+
 Shelter provides a [[https://github.com/mmcgrana/ring][ring]] http endpoint which can be easily configured
 with [[https://github.com/weavejester/compojure][compojure]] route defintions. See the ~rest.clj~ file for more and
-~core.clj~ for an example.
+~core.clj~ for examples. This endpoint is intended for client
+applications that want to authenticate against accounts in shelter
+(this can be extended to do other tasks, like update a password etc).
+
+There are predefined routes, which are all disabled by default. To
+enable them, evaluate:
+
+#+begin_src clojure
+  (in-ns 'shelter.core)
+  (add-verify-routes)
+  (add-setpassword-routes)
+  (add-listapps-route)
+  (rest/apply-routes)
+#+end_src
+
+This defines three routes:
+
+1. ~verify-route~ adds a route responding to POST requests to
+   ~/api/verify/form~ and ~/api/verify/json~ to authenticate an
+   account. It returns a ~Set-Cookie~ header with a cookie that must
+   be used as authenticator for subsequent requests. The two endpoints
+   distinguish between form and json requests. Json example:
+
+   #+begin_src json
+   {"login":"jdoe", "password":"mypass", "app":"anapp"}
+   #+end_src
+
+   The ~app~ argument is optional. If specified, authenticate against
+   the given application, otherwise use the standard secret.
+
+2. ~setpassword-route~ adds a route responding to POST requests to
+   ~/api/setpass/form~ or ~/api/setpass/json~. The request is expected
+   to contain the old credentials and a new password to set. The form
+   endpoint expects form-encoded http body, while the json endpoint
+   expects a json object containing the data. Json example:
+
+   #+begin_src json
+   {"password":"oldpass", "newpassword":"newpass", "app":"mail"}
+   #+end_src
+
+   The login is taken from the authentication cookie, which must be
+   present for this request. The ~app~ value is optional and if
+   specified changes only the password for the given app. If not
+   present, the standard password is changed.
+3. ~listapps-route~ adds a route responding to GET requests to
+   ~/api/listapps~ returning a list of applications enabled for the
+   current user. The authenticator cookie must be present for this
+   request.
+
+The last ~(rest/apply-routes)~ call restarts the web server to enable
+the routes.

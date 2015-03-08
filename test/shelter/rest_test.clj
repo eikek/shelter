@@ -32,6 +32,7 @@
 
 (deftest token-tests
   (account/account-register conn "jonas")
+  (account/app-set conn {:appid "mail" :appname "email"})
   (testing "no token without password"
     (is (= nil (make-authtoken "jonas"))))
   (testing "token with password"
@@ -48,6 +49,17 @@
           token2 (make-authtoken "jonas")]
       (is (= true (verify-authtoken token1)))
       (is (= true (verify-authtoken token2)))))
+  (testing "verify for app"
+    (account/secret-set-password conn "jonas" "testmail" "mail")
+    (let [token (make-authtoken "jonas" "mail")
+          tokend (make-authtoken "jonas")]
+      (is (= true (verify-authtoken token "mail")))
+      (is (= true (verify-authtoken token)))
+      (is (= true (verify-authtoken tokend)))
+      (is (= true (verify-authtoken tokend :default)))
+      (is (= false (verify-authtoken token :default)))
+      (is (= false (verify-authtoken token "wiki")))
+      (is (= false (verify-authtoken tokend "mail")))))
   (testing "verify fail"
     (let [token1 (.replace (make-authtoken "juli") "juli" "john")
           token2 (.replaceAll (make-authtoken "jonas") "[0-9]+" "123123")]
@@ -56,6 +68,7 @@
 
 (deftest setpassword-form-test
   (account/account-register conn "jonas" "test")
+  (account/secret-set-password conn "jonas" "testmail" "mail")
   (let [token (make-authtoken "jonas")
         handler (web/routes (make-setpassword-form-handler (fn [a b c [d]] true)
                                                            (fn [a b] nil)))]      ;; function that creates cookie value
@@ -69,12 +82,50 @@
             :body "{\"success\":true}"}
            (handler (-> (request :post "/setpass/form" {:login "eike" :password "test" :newpassword "test2"})
                       (assoc :cookies {(config/get :cookie-name) {:value token}})))))
-    (is (= {:status 403,
+    (is (= {:status 401,
             :headers {"Set-Cookie" '("shelterauth=delete;Max-Age=1")},
-            :body "Not authenticated."}
+            :body "Unauthorized."}
            (handler (-> (request :post "/setpass/form" {:login "eike" :password "test" :newpassword "test2"})
-                      (assoc :cookies {(config/get :cookie-name) {:value "sdasd"}})))))))
+                        (assoc :cookies {(config/get :cookie-name) {:value "sdasd"}})))))
+    (is (= {:status 401,
+            :headers {},
+            :body "Unauthorized."}
+           (handler (request :post "/setpass/form" {:login "eike" :password "test" :newpassword "test2"}))))))
 
+(defn- is-success-with-cookie [r]
+  (let [nextcookie (get-in r [:headers "Set-Cookie"])]
+      (is (= 200 (:status r)))
+      (is (not (nil? nextcookie)))
+      (is (= "{\"success\":true}" (:body r)))))
+
+(deftest verify-cookie-test
+  (account/app-set conn {:appid "mail" :appname "email"})
+  (account/account-register conn "jonas" "test")
+  (account/secret-set-password conn "jonas" "testmail" "mail")
+  (let [handler (web/routes (make-verify-cookie-handler))
+        token   (make-authtoken "jonas")
+        token2  (make-authtoken "jonas" "mail")]
+    (is-success-with-cookie
+     (handler (-> (request :get "/verify/cookie" {:app "mail"})
+                  (assoc :cookies {(config/get :cookie-name) {:value token2}}))))
+    (is (= {:status 401,
+            :headers {"Set-Cookie" '("shelterauth=delete;Max-Age=1")},
+            :body "Unauthorized."}
+           (handler (-> (request :get "/verify/cookie" {:app "mail"})
+                        (assoc :cookies {(config/get :cookie-name) {:value token}})))))
+    (is-success-with-cookie
+     (handler (-> (request :get "/verify/cookie")
+                  (assoc :cookies {(config/get :cookie-name) {:value token}}))))
+    (is (= {:status 401, :headers {}, :body "Unauthorized."}
+           (handler (request :get "/verify/cookie"))))
+    (is (= {:status 401,
+            :headers {"Set-Cookie" '("shelterauth=delete;Max-Age=1")},
+            :body "Unauthorized."}
+           (handler (-> (request :get "/verify/cookie")
+                        (assoc :cookies {(config/get :cookie-name) {:value "bla"}})))))
+    (is-success-with-cookie
+     (handler (-> (request :get "/verify/cookie")
+                  (assoc :cookies {(config/get :cookie-name) {:value token}}))))))
 
 (deftest verify-form-test
   (let [handler (web/routes (make-verify-form-handler (fn [a b & [c]] true)  ;; function that verifies user

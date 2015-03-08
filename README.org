@@ -133,6 +133,16 @@ This defines three routes:
    The ~app~ argument is optional. If specified, authenticate against
    the given application, otherwise use the standard secret.
 
+   The route =/api/verify/cookie= validates the cookie. If a request
+   parameter =app= is present, then the cookie must match the given
+   app. You can specify =:default= to check against the default
+   password. If =app= is not specified, any valid cookie yields
+   success (no matter which app it belongs to).
+
+   Since there is only one cookie and it holds information to one
+   application, you cannot log into different apps at the same
+   browser.
+
 2. ~setpassword-route~ adds a route responding to POST requests to
    ~/api/setpass/form~ or ~/api/setpass/json~. The request is expected
    to contain the old credentials and a new password to set. The form
@@ -147,6 +157,7 @@ This defines three routes:
    present for this request. The ~app~ value is optional and if
    specified changes only the password for the given app. If not
    present, the standard password is changed.
+
 3. ~listapps-route~ adds a route responding to GET requests to
    ~/api/listapps~ returning a list of applications enabled for the
    current user. The authenticator cookie must be present for this

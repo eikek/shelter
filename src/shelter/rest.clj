@@ -125,14 +125,21 @@
         (str data "$" sig)))))
 
 (defn verify-authtoken
-  [token]
+  "Verifies if TOKEN is valid. If APP is given, it is checked if the
+  token is issued for this app. If nil, don't care about which app the
+  token is for. To verify the default app, use the special value
+  `:default'."
+  [token & [appid]]
   (let [[salt time login app sigthere] (clojure.string/split token #"\$")
         data (str salt "$" time "$" login "$" app)
         secrets (store/with-conn conn
                   (if (not (account/account-locked? conn login))
                     (sort (map :data (account/secret-get conn login (if (empty? app) nil app))))))
         sighere (secret/sign (str (config/get :cookie-secret) secrets) data)]
-    (if (= sigthere sighere)
+    (if (and (= sigthere sighere)
+             (or (= appid app)
+                 (and (= appid :default) (empty? app))
+                 (nil? appid)))
       (> (+ (Long/parseLong time) (config/get :token-validity))
          (System/currentTimeMillis))
       false)))
@@ -181,20 +188,31 @@
 (defn wrap-verify-auth-cookie
   "Wrap the request and only proceed if it contains a valid
   authenticator token cookie. The username and app-id is extracted
-  from the cookie and put into the params map of the request."
-  [handler & [token-fn]]
+  from the cookie and put into the params map of the request.
+
+  The APPID parameter can be used to either specify an app that the
+  cookie must match, use `:app-from-request' to take the app from the
+  requests parameter map or if nil it is not taken into account. If
+  `:app-from-request' is specified, you must apply
+  `wrap-keyword-params' middleware."
+  [handler & [token-fn appid]]
   (fn [request]
-    (let [token (get-in request [:cookies (config/get :cookie-name) :value])]
-      (if (and token (verify-authtoken token))
+    (let [cookie-name (config/get :cookie-name)
+          token (get-in request [:cookies cookie-name :value])
+          app   (if (= appid :app-from-request)
+                  (get-in request [:params :app])
+                  appid)]
+      (if (and token (verify-authtoken token app))
         (let [userapp (authtoken-username-app token)
               params (-> (:params request)
-                       (assoc :login (first userapp))
-                       (assoc :app (second userapp)))
+                         (assoc :login (first userapp))
+                         (assoc :app (second userapp)))
               wrappedreq (assoc request :params params)]
           ((authtoken-cookie wrappedreq token-fn) (handler wrappedreq)))
-        (-> (response "Not authenticated.")
-          (status 403)
-          (assoc :cookies { (config/get :cookie-name) {:value "delete" :max-age 1}}))))))
+        (-> (response "Unauthorized.")
+            (status 401)
+            (cond->
+                token (assoc :cookies { cookie-name {:value "delete" :max-age 1}})))))))
 
 (defn make-handler
   "Create an handler that extracts parameters given by the names
@@ -217,9 +235,10 @@
   authenticator."
   []
   (-> (make-handler (fn [] true))
-    wrap-verify-auth-cookie
+    (wrap-verify-auth-cookie nil :app-from-request)
     cookies/wrap-cookies
     kwp/wrap-keyword-params
+    params/wrap-params
     json/wrap-json-params
     json/wrap-json-response))
 

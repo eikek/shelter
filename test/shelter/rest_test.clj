@@ -22,6 +22,7 @@
      (.toPath (clojure.java.io/as-file file)))
     (shelter.migration/migrate-db file)
     (config/set {:database file})
+    (config/set {:token-validity (* 20 60 1000)})
     (shelter.store/with-conn c
       (def conn c)
       (f)
@@ -33,14 +34,15 @@
 (deftest token-tests
   (account/account-register conn "jonas")
   (account/app-set conn {:appid "mail" :appname "email"})
+  (account/app-set conn {:appid "wiki" :appname "Wiki"})
+  (account/app-enable conn "jonas" "mail")
+  (testing "verifying weird values"
+    (is (= false (verify-authtoken "asdasd"))))
   (testing "no token without password"
     (is (= nil (make-authtoken "jonas"))))
   (testing "token with password"
     (account/account-register conn "juli" "test")
     (is (string? (make-authtoken "juli"))))
-  (testing "no token with locked account"
-    (account/account-set-locked conn "juli" true)
-    (is (= nil (make-authtoken "juli"))))
   (testing "verify success"
     (account/account-set-locked conn "juli" false)
     (account/account-set-locked conn "jonas" false)
@@ -54,12 +56,14 @@
     (let [token (make-authtoken "jonas" "mail")
           tokend (make-authtoken "jonas")]
       (is (= true (verify-authtoken token "mail")))
-      (is (= true (verify-authtoken token)))
+      (is (= false (verify-authtoken token :default)))
+      (is (= true (verify-authtoken token "mail")))
       (is (= true (verify-authtoken tokend)))
       (is (= true (verify-authtoken tokend :default)))
       (is (= false (verify-authtoken token :default)))
       (is (= false (verify-authtoken token "wiki")))
-      (is (= false (verify-authtoken tokend "mail")))))
+      (is (= false (verify-authtoken tokend "wiki")))
+      (is (= false (verify-authtoken tokend "mail"))))) ;;has separate password for mail
   (testing "verify fail"
     (let [token1 (.replace (make-authtoken "juli") "juli" "john")
           token2 (.replaceAll (make-authtoken "jonas") "[0-9]+" "123123")]
@@ -101,18 +105,29 @@
 (deftest verify-cookie-test
   (account/app-set conn {:appid "mail" :appname "email"})
   (account/account-register conn "jonas" "test")
+  (account/app-enable conn "jonas" "mail")
   (account/secret-set-password conn "jonas" "testmail" "mail")
   (let [handler (web/routes (make-verify-cookie-handler))
         token   (make-authtoken "jonas")
-        token2  (make-authtoken "jonas" "mail")]
+        token-mail  (make-authtoken "jonas" "mail")
+        token-wiki  (make-authtoken "jonas" "wiki")]
     (is-success-with-cookie
      (handler (-> (request :get "/verify/cookie" {:app "mail"})
-                  (assoc :cookies {(config/get :cookie-name) {:value token2}}))))
+                  (assoc :cookies {(config/get :cookie-name) {:value token-mail}}))))
+    (is-success-with-cookie
+     (handler (-> (request :get "/verify/cookie")
+                  (assoc :cookies {(config/get :cookie-name) {:value token-mail}})
+                  (assoc :headers {"x-shelter-app" "mail"}))))
     (is (= {:status 401,
             :headers {"Set-Cookie" '("shelterauth=delete;Max-Age=1")},
             :body "Unauthorized."}
            (handler (-> (request :get "/verify/cookie" {:app "mail"})
                         (assoc :cookies {(config/get :cookie-name) {:value token}})))))
+    (is (= {:status 401,
+            :headers {},
+            :body "Unauthorized."}
+           (handler (-> (request :get "/verify/cookie" {:app "mail"})
+                        (assoc :cookies {(config/get :cookie-name) {:value token-wiki}})))))
     (is-success-with-cookie
      (handler (-> (request :get "/verify/cookie")
                   (assoc :cookies {(config/get :cookie-name) {:value token}}))))

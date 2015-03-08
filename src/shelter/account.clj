@@ -150,6 +150,8 @@ Functions in this namespace modify and read the account database.
 
 
 (defn secret-exists?
+  "Return true if a secret exists for the given login and optionally
+  appid."
   [conn login & [appid]]
   (if appid
     (something-exists? conn :secret ["login = ? and appid = ?" login appid])

@@ -2,6 +2,7 @@
 
 (ns shelter.rest
   (:require
+   [clojure.string :as s]
    [shelter.config :as config]
    [shelter.account :as account]
    [shelter.secret :as secret]
@@ -112,43 +113,65 @@
              server))))
 
 
+(defn- sign [salt time login app secrets]
+  (let [data (str salt "$" time "$" login "$" app)
+        secret (apply str (sort (map :data secrets)))
+        sig (secret/sign (str (config/get :cookie-secret) secret) data)]
+    [data sig]))
+
+(defn- compare-sigs [sig1 sig2]
+  (every? identity (map = sig1 sig2)))
+
 (defn make-authtoken
   "Create an authenticator for the given login and app."
   [login & [app]]
   (let [salt (secret/random-string 12)
-        data (str salt "$" (System/currentTimeMillis) "$" login "$" app)
-        secrets (store/with-conn conn
-                  (if (not (account/account-locked? conn login))
-                    (sort (map :data (account/secret-get conn login app)))))]
+        secrets (store/with-conn conn (account/secret-get conn login app))]
     (if (not-empty secrets)
-      (let [sig (secret/sign (str (config/get :cookie-secret) secrets) data)]
-        (str data "$" sig)))))
+      (s/join "$" (sign salt (System/currentTimeMillis) login app secrets)))))
 
 (defn verify-authtoken
-  "Verifies if TOKEN is valid. If APP is given, it is checked if the
+  "Verifies if TOKEN is valid. If APPID is given, it is checked if the
   token is issued for this app. If nil, don't care about which app the
   token is for. To verify the default app, use the special value
-  `:default'."
+  `:default'. To be more clear, the following table shows the results
+  depending on app (as extracted from the token) and appid:
+
+  | app | appid | result         |
+  |-----+-------+----------------|
+  | x   | nil   | ok             |
+  | ()  | nil   | ok             |
+  | x   | x     | ok             |
+  | ()  | :def  | ok             |
+  | ()  | x     | if no pw for x |
+  | x   | y     | ERR            |
+  | x   | :def  | ERR            |
+"
   [token & [appid]]
-  (let [[salt time login app sigthere] (clojure.string/split token #"\$")
-        data (str salt "$" time "$" login "$" app)
-        secrets (store/with-conn conn
-                  (if (not (account/account-locked? conn login))
-                    (sort (map :data (account/secret-get conn login (if (empty? app) nil app))))))
-        sighere (secret/sign (str (config/get :cookie-secret) secrets) data)]
-    (if (and (= sigthere sighere)
-             (or (= appid app)
-                 (and (= appid :default) (empty? app))
-                 (nil? appid)))
-      (> (+ (Long/parseLong time) (config/get :token-validity))
-         (System/currentTimeMillis))
-      false)))
+  (store/with-conn conn
+    (let [[salt time login app sigthere] (s/split token #"\$")
+          millis (try (Long/parseLong time) (catch Exception e -1))
+          secrets (account/secret-get conn login (not-empty app))
+          [_ sighere] (sign salt time login (not-empty app) secrets)
+          checks [(not (account/account-locked? conn login))
+                  (> (+ millis (config/get :token-validity))
+                     (System/currentTimeMillis))
+                  (or (nil? appid)
+                      (= :default appid)
+                      (account/app-enabled? conn login appid))
+                  (or (nil? appid)
+                      (= app appid)
+                      (and (= appid :default) (empty? app))
+                      (and (empty? app) (not (account/secret-exists? conn login appid))))
+                  (compare-sigs sigthere sighere)]]
+      (every? identity checks))))
 
 (defn- authtoken-username-app
   "Given an authenticator token, return the username and app-id."
   [token]
-  (let [[salt time login app sigthere] (clojure.string/split token #"\$")]
-    [login (if (empty? app) nil app)]))
+  (if token
+    (let [[salt time login app sigthere] (s/split token #"\$")]
+      [login (if (empty? app) nil app)])))
 
 (defn- assoc-if [m key value]
   (if value
@@ -180,10 +203,9 @@
   "Write a authenticator cookie into the response."
   [handler & [token-fn]]
   (fn [request]
-    (let [wrap-cookie (authtoken-cookie request token-fn)]
-      (-> request
-        handler
-        wrap-cookie))))
+    (let [wrap-cookie (authtoken-cookie request token-fn)
+          response (handler request)]
+      (wrap-cookie response))))
 
 (defn wrap-verify-auth-cookie
   "Wrap the request and only proceed if it contains a valid
@@ -192,21 +214,23 @@
 
   The APPID parameter can be used to either specify an app that the
   cookie must match, use `:app-from-request' to take the app from the
-  requests parameter map or if nil it is not taken into account. If
-  `:app-from-request' is specified, you must apply
+  request (params or header 'x-shelter-app') or if nil it is not taken
+  into account. If `:app-from-request' is specified, you must apply
   `wrap-keyword-params' middleware."
   [handler & [token-fn appid]]
   (fn [request]
     (let [cookie-name (config/get :cookie-name)
           token (get-in request [:cookies cookie-name :value])
           app   (if (= appid :app-from-request)
-                  (get-in request [:params :app])
-                  appid)]
+                  (or (get-in request [:params :app])
+                      (get-in request [:params "app"])
+                      (get-in request [:headers "x-shelter-app"]))
+                  appid)
+          [login loginapp] (if token (authtoken-username-app token))]
       (if (and token (verify-authtoken token app))
-        (let [userapp (authtoken-username-app token)
-              params (-> (:params request)
-                         (assoc :login (first userapp))
-                         (assoc :app (second userapp)))
+        (let [params (-> (:params request)
+                         (assoc :login login)
+                         (assoc :app loginapp))
               wrappedreq (assoc request :params params)]
           ((authtoken-cookie wrappedreq token-fn) (handler wrappedreq)))
         (-> (response "Unauthorized.")

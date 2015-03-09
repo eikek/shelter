@@ -202,15 +202,19 @@ Functions in this namespace modify and read the account database.
   [conn login & [appid]]
   (let [resolved (alias-resolve conn login)]
     (if (and resolved (if appid (app-exists? conn appid) true))
-      (let [query "select type, hash, data from shelter_secret where "
+      (let [query "select type, hash, data, appid from shelter_secret where "
             secrets (if appid
-                      (sql/query conn [(str query "login = ? and appid = ?") resolved appid])
+                      (sql/query conn [(str query " login = ? and appid = ?") resolved appid])
                       (sql/query conn [(str query " appid is null and login = ?") resolved]))]
-        (mapv (fn [m]
-                (-> m
-                  (update-in [:hash] keyword)
-                  (update-in [:type] keyword)))
-              secrets)))))
+        (if (seq secrets)
+          (mapv (fn [m]
+                  (-> m
+                      (update-in [:hash] keyword)
+                      (update-in [:type] keyword)))
+                secrets)
+          (if appid
+            (recur conn login nil)
+           []))))))
 
 (defn account-properties-get
   "Return the property map for the given account and application."

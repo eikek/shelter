@@ -99,12 +99,34 @@
 
 (deftest secret-get-test
   (insert-account "eike")
-  (testing "get secret"
-    (let [secrets (secret-get conn "eike")]
+  (insert-account "eike2")
+  (insert-account "eike3")
+  (app-set conn {:appid "mail" :appname "a mail app"})
+  (secret-set conn "eike2" (secret/make-password "test"))
+  (secret-set conn "eike3" (secret/make-password "test"))
+  (secret-set conn "eike2" (secret/make-password "test") "mail")
+  (testing "get some secrets"
+    (let [secrets (secret-get conn "eike3" "mail")]
+      (is (= 1 (count secrets)))
       (doseq [secret secrets]
         (is (string? (:data secret)))
         (is (= :password (:type  secret)))
-        (is (= :bcrypt (:hash secret)))))))
+        (is (= :bcrypt (:hash secret)))))
+    (let [secrets (secret-get conn "eike3")]
+      (is (= 1 (count secrets)))
+      (doseq [secret secrets]
+        (is (string? (:data secret)))
+        (is (= :password (:type  secret)))
+        (is (= :bcrypt (:hash secret))))))
+  (testing "get some secrets"
+    (let [secrets (secret-get conn "eike2")]
+      (is (= 1 (count secrets)))
+      (doseq [secret secrets]
+        (is (string? (:data secret)))
+        (is (= :password (:type  secret)))
+        (is (= :bcrypt (:hash secret))))))
+  (testing "get empty secrets"
+    (is (= [] (secret-get conn "eike")))))
 
 (deftest account-list-test
   (insert-account "eike")

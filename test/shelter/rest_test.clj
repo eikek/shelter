@@ -33,15 +33,20 @@
 
 (deftest token-tests
   (account/account-register conn "jonas")
+  (account/account-register conn "juli" "test")
   (account/app-set conn {:appid "mail" :appname "email"})
   (account/app-set conn {:appid "wiki" :appname "Wiki"})
   (account/app-enable conn "jonas" "mail")
   (testing "verifying weird values"
     (is (= false (verify-authtoken "asdasd"))))
+  (testing "treat empty app like nil"
+    (with-redefs [secret/random-string (fn [n] "abc")
+                  shelter.rest/current-millis (fn [] 123123123)]
+      (is (= (make-authtoken "juli")
+             (make-authtoken "juli" "")))))
   (testing "no token without password"
     (is (= nil (make-authtoken "jonas"))))
   (testing "token with password"
-    (account/account-register conn "juli" "test")
     (is (string? (make-authtoken "juli"))))
   (testing "verify success"
     (account/account-set-locked conn "juli" false)
@@ -98,9 +103,9 @@
 
 (defn- is-success-with-cookie [r]
   (let [nextcookie (get-in r [:headers "Set-Cookie"])]
-      (is (= 200 (:status r)))
-      (is (not (nil? nextcookie)))
-      (is (= "{\"success\":true}" (:body r)))))
+    (is (= 200 (:status r)))
+    (is (not-empty nextcookie))
+    (is (= "{\"success\":true}" (:body r)))))
 
 (deftest verify-cookie-test
   (account/app-set conn {:appid "mail" :appname "email"})

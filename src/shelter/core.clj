@@ -30,7 +30,7 @@
   [name password & [app]]
   (store/with-conn conn
     (cond (account/account-locked? conn name) false
-          (and app (not (account/app-enabled? conn name app))) false
+          (and (not-empty app) (not (account/app-enabled? conn name app))) false
           :else (let [appsecrets (account/secret-get conn name app)
                       secrets (if (empty? appsecrets)
                                 (account/secret-get conn name)

@@ -122,13 +122,17 @@
 (defn- compare-sigs [sig1 sig2]
   (every? identity (map = sig1 sig2)))
 
+(defn- current-millis []
+  (System/currentTimeMillis))
+
 (defn make-authtoken
   "Create an authenticator for the given login and app."
   [login & [app]]
-  (let [salt (secret/random-string 12)
-        secrets (store/with-conn conn (account/secret-get conn login app))]
+  (let [appid (not-empty app)
+        salt (secret/random-string 12)
+        secrets (store/with-conn conn (account/secret-get conn login appid))]
     (if (not-empty secrets)
-      (s/join "$" (sign salt (System/currentTimeMillis) login app secrets)))))
+      (s/join "$" (sign salt (current-millis) login appid secrets)))))
 
 (defn verify-authtoken
   "Verifies if TOKEN is valid. If APPID is given, it is checked if the
@@ -303,7 +307,6 @@
     (wrap-authtoken-cookie token-fn)
     kwp/wrap-keyword-params
     json/wrap-json-params
-    wrap-authtoken-cookie
     cookies/wrap-cookies
     json/wrap-json-response))
 

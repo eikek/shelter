@@ -211,6 +211,21 @@
           response (handler request)]
       (wrap-cookie response))))
 
+(defn wrap-logout
+  "Add a cookie header to the response to make clients delete the
+  cookie."
+  [handler]
+  (fn [request]
+    (let [cookie-name (config/get :cookie-name)
+          response (handler request)]
+      (assoc response
+             :cookies
+             {cookie-name (-> {:value "" :max-age 1}
+                              (assoc-if :path (config/get :cookie-path))
+                              (assoc-if :domain (config/get :cookie-domain))
+                              (assoc :secure (config/get :cookie-secure))
+                              (assoc :http-only (config/get :cookie-http-only)))}))))
+
 (defn wrap-verify-auth-cookie
   "Wrap the request and only proceed if it contains a valid
   authenticator token cookie. The username and app-id is extracted
@@ -237,10 +252,12 @@
                          (assoc :app loginapp))
               wrappedreq (assoc request :params params)]
           ((authtoken-cookie wrappedreq token-fn) (handler wrappedreq)))
-        (-> (response "Unauthorized.")
-            (status 401)
-            (cond->
-                token (assoc :cookies { cookie-name {:value "delete" :max-age 1}})))))))
+        (let [failhandler (fn [request]
+                            (-> (response "Unauthorized.")
+                                (status 401)))]
+          (if token
+            ((wrap-logout failhandler) request)
+            (failhandler request)))))))
 
 (defn make-handler
   "Create an handler that extracts parameters given by the names
@@ -257,6 +274,17 @@
         (if (apply checkfn values)
           {:status 200 :headers {} :body {:success true}}
           {:status 401 :headers {} :body {:success false :message "Request failed."}})))))
+
+(defn make-logout-handler
+  "A handler that responds with empty body and a cookie header to make
+  the client delete the auth cookie."
+  []
+  (-> (fn [request]
+        {:status 200 :headers {} :body {:success true}})
+      json/wrap-json-response
+      wrap-logout
+      cookies/wrap-cookies))
+
 
 (defn make-verify-cookie-handler
   "A simple ring handler that only checks if a cookie is a valid

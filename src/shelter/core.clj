@@ -151,6 +151,14 @@
    :listapps (GET "/api/listapps" request
                ((rest/make-list-apps-json-handler) request))))
 
+(defn add-logout-route
+  "Add a route that responses with a header to make the clients remove
+  the cookie."
+  []
+  (rest/add-routes
+   :logout (ANY "/api/logout" request
+             ((rest/make-logout-handler) request))))
+
 (defn -main [& args]
   (println "Shelter is starting up…")
   (doseq [file args]

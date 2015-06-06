@@ -159,13 +159,18 @@ This defines three routes:
    specified changes only the password for the given app. If not
    present, the standard password is changed.
 
+   A third variant is provided at =/api/setpass-force= that expects
+   only =login=, =newpassword= and optionally an =app= parameter. This
+   will set the newpassword for the given login and app without
+   authentication.
+
 3. ~listapps-route~ adds a route responding to GET requests to
    ~/api/listapps~ returning a list of applications enabled for the
    current user. The authenticator cookie must be present for this
    request.
 
 4. ~account-exists-route~ adds a route responding to GET requests to
-   =/api/account-exists?login=..&app=..=. It returns success, if
+   ~/api/account-exists?login=..&app=..~. It returns success, if
    ~login~ exists. If ~app~ is given, it further checks whether
    ~login~ is enabled for ~app~.
 

@@ -378,6 +378,18 @@
     json/wrap-json-params
     json/wrap-json-response))
 
+(defn make-setpassword-force-form-handler
+  "Create a handler that accepts requests containing form data to set
+  a new password. It must specify `login' and `newpassword'. The
+  optional `app' parameter can be used to apply this to a specific
+  app. Note that this is dangerous as no authentication happens before
+  and a new password for any user can be set."
+  [setpass-fn]
+  (-> (make-handler setpass-fn :login :newpassword :app)
+    kwp/wrap-keyword-params
+    params/wrap-params
+    json/wrap-json-response))
+
 (defn make-list-apps-json-handler
   "Create a ring handler that returns a list of applications enabled
   for the current user."

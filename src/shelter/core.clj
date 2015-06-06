@@ -143,6 +143,12 @@
     (store/with-conn conn
       (account/secret-set-password conn login newpw appid))))
 
+(defn- user-force-set-password
+  "Sets a new password for the given login and app."
+  [login newpassword & [app]]
+  (store/with-conn conn
+    (account/secret-set-password conn login newpassword app)))
+
 (defn add-setpassword-routes
   "Add a POST routes to the rest handler to set a new password given
   the current credentials either via json or form body."
@@ -151,7 +157,9 @@
    :setpassform (POST "/api/setpass/form" request
                   ((rest/make-setpassword-form-handler user-set-password) request))
    :setpassjson (POST "/api/setpass/json" request
-                  ((rest/make-setpassword-json-handler user-set-password) request))))
+                  ((rest/make-setpassword-json-handler user-set-password) request))
+   :setpassforce (POST "/api/setpass-force" request
+                   ((rest/make-setpassword-force-form-handler user-force-set-password) request))))
 
 (defn add-listapps-route
   "Add a GET route to retrieve the applications enabled for the

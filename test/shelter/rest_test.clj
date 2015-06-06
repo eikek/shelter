@@ -227,3 +227,25 @@
             :headers {"Content-Type" "application/json; charset=utf-8"},
             :body "{\"success\":false,\"message\":\"Request failed.\"}"}
            (handler (request :get "/account-exists/form?login=bob&app=wiki"))))))
+
+(deftest setpassword-force-form-test
+  (account/account-register conn "jonas" "test")
+  (account/secret-set-password conn "jonas" "testmail" "mail")
+  (let [handler (web/routes (make-setpassword-force-form-handler
+                             (fn [a b [c]] true)))]
+    (is (= {:status 400,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":false,\"message\":\"Invalid request.\"}"}
+           (handler (request :post "/setpass-force/form"))))
+    (is (= {:status 200,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":true}"}
+           (handler (request :post "/setpass-force/form" {:login "eike" :newpassword "test2"}))))
+    (is (= {:status 200,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":true}"}
+           (handler (request :post "/setpass-force/form" {:login "eike" :newpassword "test2" :app "wiki"}))))
+    (is (= {:status 400,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":false,\"message\":\"Invalid request.\"}"}
+           (handler (request :post "/setpass-force/form" {:login "eike"}))))))

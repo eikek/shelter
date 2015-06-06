@@ -58,6 +58,16 @@
   (store/with-conn conn
     (account/account-register conn login pass details)))
 
+(defn account-enabled? [name & [app]]
+  "Check whether an account LOGIN exists, is not locked and optionally
+  if it is enabled for APP."
+  (store/with-conn conn
+    (cond
+      (not (account/account-exists? conn name)) false
+      (account/account-locked? conn name) false
+      (and (not-empty app) (not (account/app-enabled? conn name app))) false
+      :else true)))
+
 (defn list-accounts
   "List all accounts."
   []
@@ -158,6 +168,24 @@
   (rest/add-routes
    :logout (ANY "/api/logout" request
              ((rest/make-logout-handler) request))))
+
+(defn add-account-exists-route
+  "Add a route that responses to get requests whether an account
+  exists or not. The request is expected to have at least a login
+  parameter. Optionally an app parameter can be specified."
+  []
+  (let [exists?
+        (fn [login & [app]]
+          (store/with-conn conn
+            (cond
+              (not (account/account-exists? conn login)) false
+              (empty? app) true
+              (account/app-enabled? conn login app) true
+              :else false)))]
+    (rest/add-routes
+     :account-exists-form
+     (GET "/api/account-exists" request
+       ((rest/make-account-exists-handler exists?) request)))))
 
 (defn -main [& args]
   (println "Shelter is starting up…")

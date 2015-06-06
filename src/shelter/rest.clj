@@ -395,3 +395,13 @@
       cookies/wrap-cookies
       kwp/wrap-keyword-params
       json/wrap-json-response)))
+
+(defn make-account-exists-handler
+  "Create a ring handler that checks whether an account exists. If a
+  `app' parameter is also specified, the account must be enabled for
+  app."
+  [account-exists-fn]
+  (-> (make-handler account-exists-fn :login :app)
+    kwp/wrap-keyword-params
+    params/wrap-params
+    json/wrap-json-response))

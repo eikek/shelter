@@ -33,3 +33,18 @@
     (account/secret-set-password conn "eike" "super" "wiki")
     (is (verify "eike" "super" "wiki"))
     (is (= false (verify "eike" "test" "wiki")))))
+
+(deftest account-enabled-test
+  (account/account-register conn "eike" "test")
+  (account/account-register conn "linda" "test")
+  (account/account-register conn "bob")
+  (account/app-set conn {:appid "wiki" :appname "a wiki"})
+  (account/app-enable conn "eike" "wiki")
+  (testing "enabled or not enabled"
+    (is (= true (account-enabled? "eike")))
+    (is (= true (account-enabled? "linda")))
+    (is (= true (account-enabled? "eike" "wiki")))
+    (is (= false (account-enabled? "linda" "wiki")))
+    (is (= false (account-enabled? "bob")))
+    (is (= false (account-enabled? "bob" "wiki")))
+    (is (= false (account-enabled? "james")))))

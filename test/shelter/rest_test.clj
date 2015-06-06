@@ -204,3 +204,26 @@
                       "Content-Type" "application/json; charset=utf-8"}
             :body "{\"success\":true}"}
            (handler (request :get "/logout"))))))
+
+(deftest account-exists-test
+  (let [handler (web/routes (make-account-exists-handler (fn [a & [b]] (= a "eike"))))]
+    (is (= {:headers {"Content-Type" "application/json; charset=utf-8"},
+            :status 400,
+            :body "{\"success\":false,\"message\":\"Invalid request.\"}"}
+           (handler (request :get "/account-exists"))))
+    (is (= {:headers {"Content-Type" "application/json; charset=utf-8"},
+            :status 400,
+            :body "{\"success\":false,\"message\":\"Invalid request.\"}"}
+           (handler (request :get "/account-exists?foo=bar"))))
+    (is (= {:status 200,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":true}"}
+           (handler (request :get "/account-exists?login=eike"))))
+    (is (= {:status 200,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":true}"}
+           (handler (request :get "/account-exists?login=eike&app=wiki"))))
+    (is (= {:status 401,
+            :headers {"Content-Type" "application/json; charset=utf-8"},
+            :body "{\"success\":false,\"message\":\"Request failed.\"}"}
+           (handler (request :get "/account-exists/form?login=bob&app=wiki"))))))

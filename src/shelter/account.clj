@@ -113,7 +113,8 @@ Functions in this namespace modify and read the account database.
 (defn app-enabled?
   "Check whether APPID is enabled for LOGIN."
   [conn login appid]
-  (something-exists? conn :account_app ["login = ? and appid = ?" login appid]))
+  (something-exists? conn :account_app
+                     ["login = ? and appid = ?"  (alias-resolve conn login) appid]))
 
 (defn app-enable
   "Grant the account LOGIN all apps in APPIDS."

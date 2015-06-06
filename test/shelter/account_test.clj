@@ -69,7 +69,12 @@
     (is (= true (app-enable conn "eike" "mail")))
     (is (= true (app-disable conn "eike" "mail"))))
   (testing "app-enabled? for non-existing app"
-    (is (= false (app-enabled? conn "eike" "wiki")))))
+    (is (= false (app-enabled? conn "eike" "wiki"))))
+  (testing "app-enabled? for alias"
+    (alias-add conn "eike" "human")
+    (app-enable conn "eike" "mail")
+    (is (= true (app-enabled? conn "eike" "mail")))
+    (is (= true (app-enabled? conn "human" "mail")))))
 
 (deftest app-cascade-remove
   (testing "remove app"

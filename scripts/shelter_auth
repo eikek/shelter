@@ -10,7 +10,7 @@ if [ -z "$CURL_BIN" ]; then
     CURL_BIN=curl
 fi
 
-COMMAND="$CURL_BIN -s -D /dev/stdout --data-urlencode login=$2 --data-urlencode password=$3 "
+COMMAND="$CURL_BIN -s -D /dev/stdout -o /dev/null --data-urlencode login=$2 --data-urlencode password=$3 "
 if [ -n "$4" ]; then
     COMMAND="$COMMAND --data-urlencode app=$4 "
 fi

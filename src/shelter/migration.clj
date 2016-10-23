@@ -55,7 +55,7 @@
                     primary key (login, appid)
                     foreign key (login) references shelter_account(login) on delete cascade
                     foreign key (appid) references shelter_application(appid) on delete cascade)"]]
-    (apply sql/db-do-commands conn tables)
+    (sql/db-do-commands conn tables)
     (insert-log conn 1 "Initial tables created.")
     (println "Initial tables created.")))
 

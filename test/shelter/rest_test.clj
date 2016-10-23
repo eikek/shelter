@@ -92,7 +92,7 @@
            (handler (-> (request :post "/setpass/form" {:login "eike" :password "test" :newpassword "test2"})
                       (assoc :cookies {(config/get :cookie-name) {:value token}})))))
     (is (= {:status 401,
-            :headers {"Set-Cookie" '("shelterauth=;HttpOnly;Path=/;Max-Age=1")},
+            :headers {"Set-Cookie" '("shelterauth=;Max-Age=1;Path=/;HttpOnly")},
             :body "Unauthorized."}
            (handler (-> (request :post "/setpass/form" {:login "eike" :password "test" :newpassword "test2"})
                         (assoc :cookies {(config/get :cookie-name) {:value "sdasd"}})))))
@@ -124,7 +124,7 @@
                   (assoc :cookies {(config/get :cookie-name) {:value token-mail}})
                   (assoc :headers {"x-shelter-app" "mail"}))))
     (is (= {:status 401,
-            :headers {"Set-Cookie" '("shelterauth=;HttpOnly;Path=/;Max-Age=1")},
+            :headers {"Set-Cookie" '("shelterauth=;Max-Age=1;Path=/;HttpOnly")},
             :body "Unauthorized."}
            (handler (-> (request :get "/verify/cookie" {:app "mail"})
                         (assoc :cookies {(config/get :cookie-name) {:value token}})))))
@@ -139,7 +139,7 @@
     (is (= {:status 401, :headers {}, :body "Unauthorized."}
            (handler (request :get "/verify/cookie"))))
     (is (= {:status 401,
-            :headers {"Set-Cookie" '("shelterauth=;HttpOnly;Path=/;Max-Age=1")},
+            :headers {"Set-Cookie" '("shelterauth=;Max-Age=1;Path=/;HttpOnly")},
             :body "Unauthorized."}
            (handler (-> (request :get "/verify/cookie")
                         (assoc :cookies {(config/get :cookie-name) {:value "bla"}})))))
@@ -200,7 +200,7 @@
 (deftest verify-logout-test
   (let [handler (web/routes (make-logout-handler))]
     (is (= {:status 200
-            :headers {"Set-Cookie" '("shelterauth=;HttpOnly;Path=/;Max-Age=1")
+            :headers {"Set-Cookie" '("shelterauth=;Max-Age=1;Path=/;HttpOnly")
                       "Content-Type" "application/json; charset=utf-8"}
             :body "{\"success\":true}"}
            (handler (request :get "/logout"))))))

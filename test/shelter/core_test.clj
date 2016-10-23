@@ -59,7 +59,13 @@
       (is (= 3 (:failedlogins details)))
       (is (> (:lastlogin details) 0))
       (is (= nil (:name details)))
-      (is (= nil (:email details))))))
+      (is (= nil (:email details))))
+    (verify-and-update "eike" "test")
+    (let [details (shelter.store/with-conn conn
+                    (account/account-details-get conn "eike"))]
+      ;; should not update after quick subsequent calls
+      (is (= 1 (:logincount details)))
+      (is (= 3 (:failedlogins details))))))
 
 (deftest account-enabled-test
   (account/account-register conn "eike" "test")

@@ -16,7 +16,8 @@
   (:gen-class :main true))
 
 ;; default values
-(config/set {:nrepl-port 7989})
+(config/set {:nrepl-port 7989
+             :verify-update-interval-ms 5000})
 
 (defonce ^:private nrepl-server (atom nil))
 
@@ -42,16 +43,20 @@
 (defn verify-and-update
   "Run `verify' and update account details according to the result."
   [name password & [app]]
-  (let [result (verify name password app)]
+  (let [result (verify name password app)
+        now (System/currentTimeMillis)
+        interval (config/get :verify-update-interval-ms)]
     (store/with-conn conn
       (account/account-details-set
        conn name
        (fn [data]
-         (conj data
-               (if result {:lastlogin (System/currentTimeMillis)})
-               (if result
-                 {:logincount (inc (:logincount data))}
-                 {:failedlogins (inc (:failedlogins data))})))))
+         (if (> (- now (or (:lastlogin data) 0)) interval)
+           (conj data
+                 (if result {:lastlogin now})
+                 (if result
+                   {:logincount (inc (:logincount data))}
+                   {:failedlogins (inc (:failedlogins data))}))
+           data))))
     result))
 
 (defn set-application

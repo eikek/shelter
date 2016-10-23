@@ -34,6 +34,33 @@
     (is (verify "eike" "super" "wiki"))
     (is (= false (verify "eike" "test" "wiki")))))
 
+(deftest verify-and-update-test
+  (account/account-register conn "eike" "test")
+  (account/app-set conn {:appid "wiki" :appname "a wiki"})
+  (testing "verify account"
+    (is (= false (verify-and-update "eike" "other")))
+    (is (= false (verify-and-update "eike" "test" "mail")))
+    (is (= false (verify-and-update "eike" "test" "wiki"))))
+  (testing "update details"
+    (let [details (shelter.store/with-conn conn
+                    (account/account-details-get conn "eike"))]
+      (is (= 3 (:failedlogins details)))
+      (is (= 0 (:logincount details)))
+      (is (= false (:locked details)))
+      (is (= nil (:lastlogin details)))
+      (is (= nil (:name details)))
+      (is (= nil (:email details)))))
+  (testing "verify account"
+    (is (verify-and-update "eike" "test")))
+  (testing "update details"
+    (let [details (shelter.store/with-conn conn
+                    (account/account-details-get conn "eike"))]
+      (is (= 1 (:logincount details)))
+      (is (= 3 (:failedlogins details)))
+      (is (> (:lastlogin details) 0))
+      (is (= nil (:name details)))
+      (is (= nil (:email details))))))
+
 (deftest account-enabled-test
   (account/account-register conn "eike" "test")
   (account/account-register conn "linda" "test")

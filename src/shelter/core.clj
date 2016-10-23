@@ -39,6 +39,21 @@
                   (or (some second result) false)))))
 
 
+(defn verify-and-update
+  "Run `verify' and update account details according to the result."
+  [name password & [app]]
+  (let [result (verify name password app)]
+    (store/with-conn conn
+      (account/account-details-set
+       conn name
+       (fn [data]
+         (conj data
+               (if result {:lastlogin (System/currentTimeMillis)})
+               (if result
+                 {:logincount (inc (:logincount data))}
+                 {:failedlogins (inc (:failedlogins data))})))))
+    result))
+
 (defn set-application
   "Adds or updates an application given as map."
   [app]
@@ -132,9 +147,9 @@
    :verifycookie (ANY "/api/verify/cookie" request
                    ((rest/make-verify-cookie-handler) request))
    :verifyform (POST "/api/verify/form" request
-                 ((rest/make-verify-form-handler verify) request))
+                 ((rest/make-verify-form-handler verify-and-update) request))
    :verifyjson (POST "/api/verify/json" request
-                 ((rest/make-verify-json-handler verify) request))))
+                 ((rest/make-verify-json-handler verify-and-update) request))))
 
 (defn- user-set-password
   "Sets a NEWPW for LOGIN if verification is successful using OLDPW."

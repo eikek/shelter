@@ -1,4 +1,4 @@
-(defproject shelter "0.1.0-SNAPSHOT"
+(defproject shelter "0.1.0"
   :description "Manage user account data"
   :url "https://gitub.com/eikek/shelter"
   :license {:name "Eclipse Public License"
